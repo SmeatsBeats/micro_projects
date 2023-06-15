@@ -1,7 +1,8 @@
 {
 	"folders": [
 		{
-			"path": ".."
+			"name": "FAST_LED",
+			"path": "../../../FAST_LED"
 		}
 	],
 	"settings": {}

@@ -12,14 +12,26 @@
 #include <map>
 #include <Adafruit_NeoPixel.h>
 
+// rfid
 
 #define SS_PIN 5
 #define RST_PIN 21
 MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance.
 
+// neopixel 
+
 #define PIN 25
 #define NUMPIXELS 10
 Adafruit_NeoPixel pixels(NUMPIXELS, PIN, NEO_GRB + NEO_KHZ800);
+
+// sound sensor
+
+#define ANALOG_PIN 33
+#define DIGI_PIN 32
+int analogVal = 0; 
+int digiVal; 
+
+// declare functions
 
 void colorWipe(uint32_t c, uint8_t wait);
 
@@ -74,7 +86,7 @@ void loop()
           if ( ! mfrc522.PICC_IsNewCardPresent()) { // if a card is presented during the animation - stop it
             pixels.setPixelColor(i, pixels.Color(0, 0, 60));
             pixels.show();   // Send the updated pixel colors to the hardware.
-            delay(10); // Pause before next pass through loop
+            //delay(10); // Pause before next pass through loop
           }
         }
       break;
@@ -141,8 +153,8 @@ void loop()
   auto iter = profiles.find(PID);
 
   if(iter != profiles.end()){
-    Serial.println("Load profile: " + iter->second);
-    delay(2000);
+    //Serial.println("Load profile: " + iter->second);
+    //delay(2000);
 
     
     if(iter->second == "BlueFob") {
@@ -158,8 +170,8 @@ void loop()
   
   }
   else {
-    Serial.println("No profile found.");
-    delay(2000);
+    //Serial.println("No profile found.");
+    //delay(2000);
   }
   
 
