@@ -1,4 +1,5 @@
 #include <driver/i2s.h>
+#include <Arduino.h>
 
 // you shouldn't need to change these settings
 #define SAMPLE_BUFFER_SIZE 512
@@ -15,8 +16,8 @@ i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_I2S,
+    .channel_format = I2S_CHANNEL_FMT_ONLY_RIGHT, // MINE IS FLIPPED SO I CHANGED THIS TO RIGHT AND KEPT CONNECTED TO GROUND
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 4,
     .dma_buf_len = 1024,
@@ -46,7 +47,9 @@ void loop()
   // read from the I2S device
   size_t bytes_read = 0;
   i2s_read(I2S_NUM_0, raw_samples, sizeof(int32_t) * SAMPLE_BUFFER_SIZE, &bytes_read, portMAX_DELAY);
+  //this is a weird way to divide by 4... 
   int samples_read = bytes_read / sizeof(int32_t);
+  //Serial.println(sizeof(int32_t));
   // dump the samples out to the serial channel.
   for (int i = 0; i < samples_read; i++)
   {

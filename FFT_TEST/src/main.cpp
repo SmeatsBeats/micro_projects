@@ -165,9 +165,6 @@ EVERY_N_MILLIS(10) { // maybe this will smooth it out a little?
   }
 }
 
- 
-
-  
 
   // pattern 2 
 

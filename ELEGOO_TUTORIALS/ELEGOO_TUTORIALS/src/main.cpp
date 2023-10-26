@@ -13,6 +13,28 @@
 #include "FastLED.h"
 #include "arduinoFFT.h"
 
+// fft 
+
+#define NUM_BANDS 10
+#define NOISE 1000
+const uint16_t samples = 128; //This value MUST ALWAYS be a power of 2
+const double samplingFrequency = 9000; //Hz, must be less than 10000 due to ADC
+
+unsigned int sampling_period_us;
+unsigned long newTime;
+
+int bandValues[NUM_BANDS] = {0}; 
+
+/*
+These are the input and output vectors
+Input vectors receive computed results from FFT
+*/
+double vReal[samples];
+double vImag[samples];
+
+arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
+
+
 // rfid
 
 #define SS_PIN 5
@@ -67,10 +89,6 @@ struct CRGB leds[NUM_LEDS];
 unsigned long prev_millis = 0;
 int interval = 300; 
 
-// sample rate test
-int analogTest;
-unsigned long newTime;
-
 // declare functions
 
 void palette_move(int palette_interval);
@@ -90,6 +108,10 @@ void setup()
   Serial.begin(9600);   // Initiate a serial communication
   while(!Serial);
   Serial.println("Ready");
+
+  // fft sampling rate 
+  sampling_period_us = round(1000000*(1.0/samplingFrequency));
+
   // LED test
   LEDS.addLeds<LED_TYPE, LED_DT, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(max_bright);
@@ -105,44 +127,61 @@ void setup()
 
 void loop()
 {
-  unsigned long current_millis = millis();
 
   // test sampling rate 
-  /*
-  newTime = micros();
+  // last result 11,000 Hz with analog read
 
-  for(int i = 0; i < 1000000; i++) {
-    analogTest = analogRead(ANALOG_PIN);
+  // Sample the audio pin
+  for (int i = 0; i < samples; i++) {
+    newTime = micros();
+    vReal[i] = analogRead(ANALOG_PIN); // A conversion takes about 9.7uS on an ESP32
+    vImag[i] = 0;
+    while ((micros() - newTime) < sampling_period_us) { /* chill */ }
   }
 
-  float conversionTime = (micros() - newTime) / 1000000.0;
+  // remove DC offset?
+  FFT.DCRemoval();
 
-  Serial.print("Conversion time: ");
-  Serial.print(conversionTime);
-  Serial.println(" uS");
+  // perform fft 
+  FFT.Windowing(vReal, samples, FFT_WIN_TYP_HAMMING, FFT_FORWARD);	/* Weigh data */
+  FFT.Compute(vReal, vImag, samples, FFT_FORWARD); /* Compute FFT */
+  FFT.ComplexToMagnitude(vReal, vImag, samples); /* Compute magnitudes */
 
-  Serial.print("Max sampling frequency: ");
-  Serial.print((1.0 / conversionTime) * 1000000);
-  Serial.println(" Hz"); 
-  */
+  // Reset bandValues[]
+  for (int i = 0; i<NUM_BANDS; i++){
+    bandValues[i] = 0;
+  }
 
- // last result 11,000 Hz with analog read
+  // store results in frequency bands
+
+    for(int i = 2; i < (samples/2); i++) {
+    // noise filter is really too crude! need something frequency dependent 
+    // could maybe write function to calibrate when music off
+    //if (vReal[i] > NOISE) {
+
+      // 128 samples - this is way quicker and won't miss kicks, but I can't figure out wtf is going on with the other bands 
+
+      //10 bands, 4.5kHz top band
+      if (i <= 1 && vReal[i] > 1000) bandValues[0] += (int)vReal[i];
+      if (i > 1 && i <= 2) bandValues[1] += (int)vReal[i];
+      if (i > 2 && i <= 4) bandValues[2] += (int)vReal[i];
+      if (i > 4 && i <= 6) bandValues[3] += (int)vReal[i];
+      if (i > 6 && i <= 9) bandValues[4] += (int)vReal[i];
+      if (i > 9 && i <= 14) bandValues[5] += (int)vReal[i];
+      if (i > 14 && i <= 21) bandValues[6] += (int)vReal[i];
+      if (i > 21 && i <= 34 && vReal[i] > 3000) bandValues[7] += (int)vReal[i];
+      if (i > 34 && i <= 52 && vReal[i] > 3000) bandValues[8] += (int)vReal[i];
+      if (i > 52) bandValues[9]  += (int)vReal[i];
 
 
-  // read sound sensor digital and analog inputs
-  //digiVal = digitalRead(DIGI_PIN);
-  analogVal = analogRead(ANALOG_PIN);
 
-  // send data to serial monitor
-  // delay to not overwhelm - remove this when not testing
-  //if (current_millis - prev_millis >= interval) {
-  //  prev_millis = current_millis;
-    Serial.println(analogVal);
-  //}
+    //} // NOISE
+
+  } // bandVals
 
 
   if (UID == "94 D5 E9 85") {
-    Serial.println("Blue Fob");
+    //Serial.println("Blue Fob");
     //fill_solid(leds, NUM_LEDS, CRGB::Blue);
     fill_palette(leds, NUM_LEDS, paletteIndex, 255 / NUM_LEDS, iceFade, 255, LINEARBLEND);
     breathe(15, 10, max_bright);
@@ -156,13 +195,29 @@ void loop()
   */
   }
   else if (UID == "9A AF 7D D4") {
-    Serial.println("White Fob");
-    //fill_solid(leds, NUM_LEDS, CRGB::White);
-
+    //Serial.println("White Fob");
     chase(60);
-    //breathe(30, 50);
 
-    //sawtooth();
+    //Serial.println("Band 1: ");
+    //Serial.println(bandValues[1]);
+
+
+    if (bandValues[1] > 1100) {
+
+      fill_solid(leds, NUM_LEDS, CRGB::White);
+    
+    }
+
+
+    /*
+    EVERY_N_MILLIS(10) { // maybe this will smooth it out a little?
+      for (int i = 0; i < NUM_LEDS; i++) {
+        leds[i] = CHSV(map(bandValues[i], 0, 1500, 0, 255), 150, map(bandValues[i], 0, 1500, 0, 255));
+        //leds[i] = CHSV(90, 150, bandValues[i]);
+      } // each LED
+    } // every N millis
+    */
+
   }
   else {
     //Serial.println("Unrecognized.");
@@ -170,13 +225,25 @@ void loop()
     //fill_solid(leds, NUM_LEDS, CRGB::Red);
     fill_palette(leds, NUM_LEDS, 0, 255 / NUM_LEDS, roseBud, 255, LINEARBLEND);
     //FastLED.setBrightness(map(analogVal, 3000, 3275, 0, max_bright));
-    //breathe(30, 10, max_bright);
+    breathe(30, 10, max_bright);
+    if (bandValues[1] > 1100) {
+
+      FastLED.setBrightness(0);
+    
+    }
+
+    if (bandValues[7] > 3100) {
+
+      FastLED.setBrightness(max_bright);
+    
+    }
+
+    //Serial.println("Band 3: ");
+    Serial.println(bandValues[7]);
+
   }
-
   
-
   FastLED.show();
-
 
   // Reset loop when idle
   if ( ! mfrc522.PICC_IsNewCardPresent()) 
@@ -190,7 +257,7 @@ void loop()
   }
 
   //Show UID on serial monitor
-  Serial.print("UID tag :");
+  //Serial.print("UID tag :");
   String content= "";
   byte letter;
   for (byte i = 0; i < mfrc522.uid.size; i++) 
@@ -211,28 +278,6 @@ void breathe(uint8_t breathe_interval, uint8_t breathe_min_bright, uint8_t breat
   uint8_t sinBright = beatsin8(breathe_interval, breathe_min_bright, breathe_max_bright, 0, 0);
   FastLED.setBrightness(sinBright);
 
-  /*
-
-  FastLED.setBrightness(bright);
-  EVERY_N_MILLIS(breathe_interval) {
-    if (inhale){
-      bright++;
-    }
-    else{
-      bright--;
-    }
-  }
-  // when breathe in is complete, breathe out
-  // also need to stop breathing in
-  EVERY_N_MILLIS(breathe_interval * (breathe_max_bright + 1)) {
-    if (inhale == true) {
-      inhale = false;
-    }
-    else {
-      inhale = true; 
-    }
-  }
-  */
 } // breathe
 
 
@@ -250,32 +295,12 @@ void chase(uint8_t chase_interval) {
 
   fadeToBlackBy(leds, NUM_LEDS, 70);
 
-/*
-// when full cycle completes set first one to white and rest to black
-//int chase_interval = 30;
-EVERY_N_MILLIS(chase_interval * (NUM_LEDS + 1)) {
-  chase_i = 0;
-  //fill_solid(leds, NUM_LEDS, CHSV(0, 0, 0));
-  leds[0].setHSV(0, 0, 255);
-}
-EVERY_N_MILLIS(chase_interval) {
-  leds[chase_i].setHSV(0, 0, 255);
-  if(chase_i > 0) {
-    leds[chase_i - 1].setHSV(0, 0, 0);
-  }
-  else {
-    leds[NUM_LEDS - 1].setHSV(0, 0, 0);
-  }
-    
-  EVERY_N_MILLIS(chase_interval) {
-    chase_i++;
-  }
-}
-  */
 } // chase
 
 void palette_move(int palette_interval) {
+
   EVERY_N_MILLIS(palette_interval) {
     paletteIndex++;
   }
+
 }
