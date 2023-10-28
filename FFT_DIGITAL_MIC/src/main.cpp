@@ -20,8 +20,18 @@
 // profile selection
 
 int profile_selected = 0;
+int prev_profile_selected;
 
 // ESP_NOW
+
+// for now just use one address to send data back to remote - in future could be cool to communicate with other nearby boards
+
+uint8_t broadcastAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
+// remote address
+//0C:B8:15:C0:E9:5C
+
+// Variable to add info about peer
+esp_now_peer_info_t peerInfo;
 
 // Structure example to receive data
 // Must match the sender structure
@@ -34,29 +44,41 @@ typedef struct struct_message {
 } struct_message;
 */
 
-typedef struct struct_message {
+typedef struct from_remote {
     int h;
     int s;
     int v;
-} struct_message;
+    int p;
+} from_remote;
 
-// Create a struct_message called myData
-struct_message myData;
+typedef struct to_remote {
+    int p;
+} to_remote;
+
+// Create struct_messages
+from_remote remoteData;
+to_remote deviceData;
+
+// callback when data is sent
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  //Serial.print("\r\nLast Packet Send Status:\t");
+  //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
 
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
-  memcpy(&myData, incomingData, sizeof(myData));
+  memcpy(&remoteData, incomingData, sizeof(remoteData));
   /*
   Serial.print("Bytes received: ");
   Serial.println(len);
   Serial.print("Char: ");
-  Serial.println(myData.a);
+  Serial.println(remoteData.a);
   Serial.print("Int: ");
-  Serial.println(myData.b);
+  Serial.println(remoteData.b);
   Serial.print("Float: ");
-  Serial.println(myData.c);
+  Serial.println(remoteData.c);
   Serial.print("Bool: ");
-  Serial.println(myData.d);
+  Serial.println(remoteData.d);
   Serial.println();
 
   */
@@ -81,7 +103,7 @@ int average = 0;            // the average
 // you want to average each fft bin of interest
 
 const int num_bins = 16;
-const int fft_num_readings = 8;
+const int fft_num_readings = 10;
 int fft_readings[num_bins][fft_num_readings];  // the readings from the analog input
 int fft_readIndex = 0;          // the index of the current reading
 int fft_total[num_bins] = {0};              // the running total
@@ -197,6 +219,20 @@ void setup()
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info
   esp_now_register_recv_cb(OnDataRecv);
+
+  esp_now_register_send_cb(OnDataSent);
+
+   // Register peer 1
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  // Add peer      
+   
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Failed to add peer 1");
+    //return;
+  }
   
 }
 
@@ -289,165 +325,31 @@ if (fft_readIndex >= fft_num_readings) {
   }
 
 
-
-  //Serial.println(255 - (average/20));
-
-
-  //if (UID == "94 D5 E9 85") {
-  // switch to new adhesive disks
-  // Blue
-  if (UID == "6B 49 B8 B6") {
-    profile_selected = 1;
-
-    //Serial.println("Blue Fob");
-    //fill_solid(leds, NUM_LEDS, CRGB::Blue);
-
-    // 10/26
-    /*
-    fill_palette(leds, NUM_LEDS, paletteIndex, 255 / NUM_LEDS, iceFade, 255, LINEARBLEND);
-    breathe(15, 10, max_bright);
-    palette_move(1);
-    */
-  }
-  // White 
-    else if (UID == "0B 83 C7 B6") {
-    
-    //remote
-    profile_selected = 4;
-    
-    //Serial.println("White Fob");
-    //chase(60);
-
-    //Serial.println("Band 1: ");
-    //Serial.println(fftResult[1]);
-
-    // 10/26
-    /*
-
-    fill_solid(leds, NUM_LEDS, CRGB::White);
-
-    for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = CHSV(myData.h, myData.s, myData.v);
-    }
-    */
-    
-  }
-  //yellow
-  else if (UID == "2B 72 BE B6") {
-    // react
-
-    profile_selected = 2;
-
-    //Serial.println("White Fob");
-    //chase(60);
-    //Serial.println("Major Peak: ");
-    //Serial.println(FFT_MajorPeak);
-
-    //Serial.println("Band 1: ");
-    //Serial.println(fftResult[1]);
-
-    
-    //fill_solid(leds, NUM_LEDS, CHSV( FFT_MajorPeak/5, 0, 55 ));
-
-
-    // 10/26
-    /*
-    
-
-    int groups = 10;
-    int lights = NUM_LEDS / groups;
-
-    //kick flash 
-
-    if (fftResult[1] > 700) {
-
-      fill_solid(leds, NUM_LEDS, CRGB::White);
-    
-    }
-
-    for (int r = 1; r <= groups; r++) {
-      for (int i = r * lights - lights; i < r * lights; i++) {
-        //leds[i] = CHSV(fftResult[r+3], 150, fftResult[r+3]);
-        leds[i] = CHSV(fft_average[r+3], 150, fft_average[r+3]);
-        //leds[i] = CHSV(90, 150, fftResult[i+3]);
-      } // each LED
-    }
-
-  */
-
-  /*
-    EVERY_N_MILLIS(10) { // maybe this will smooth it out a little? - see rough avg approach using prevfft
-      for (int i = 0; i < NUM_LEDS; i++) {
-        leds[i] = CHSV(fftResult[i+4], 150, fftResult[i+4]);
-        //leds[i] = CHSV(90, 150, fftResult[i+3]);
-      } // each LED
-    } // every N millis
-    */
-
-  }
   
-  // green
-  else if (UID == "CB 9A BF B6") {
+  // if you do this here, UID never matters. What criteria can be used to decide when one should be used?
+  // if new button value is different from previous, then set based on the button value, otherwise use UID
+  // what if you go off of same UID?
 
-    profile_selected = 5;
+  // if the button is different from the UID value... hopefully 
+  //if (remoteData.p != profile_selected) {
+    //profile_selected = remoteData.p;
+  //}
 
-    // 10/26
+  // this while override the profile selected based on UID not if remoteData is sending that back
 
-    /*
+  profile_selected = remoteData.p;
 
-    for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = CHSV(0, 0, 0);
-    }
-
-    // try using photocell to set brightness according to ambient light 
-      for (int i = 0; i < NUM_LEDS; i++) {
-          leds[i] = CHSV(0, 0, max(0, (255 - average/17)));
-      }
-    
-    //fill_solid(leds, NUM_LEDS, CRGB::Green);
-
-    */
-
-  }
-  //pink - unknown
-  else {
-
-    profile_selected = 0;
-
-    //Serial.println("Unrecognized.");
-    //Serial.println("UID: " + UID);
-    //fill_solid(leds, NUM_LEDS, CRGB::Red);
-
-    // 10/26
-    fill_palette(leds, NUM_LEDS, 0, 255 / NUM_LEDS, roseBud, 255, LINEARBLEND);
-    
-    //FastLED.setBrightness(map(analogVal, 3000, 3275, 0, max_bright));
-
-    // 10/26
-    //breathe(30, 10, max_bright);
-
-    /*
-    if (fftResult[1] > 1100) {
-
-      FastLED.setBrightness(0);
-    
-    }
-
-    if (fftResult[7] > 3100) {
-
-      FastLED.setBrightness(max_bright);
-    
-    }
-
-    */
-
-    //Serial.println("Band 3: ");
-    //Serial.println(fftResult[7]);
+  Serial.println("Profile from remote: ");
+  Serial.println(profile_selected);
 
 
-  }
+  // you will need to communicate this selection to the remote whether or not RFID scanned 
 
-  // run profile based on selection
+  // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
+
+
+
+  // run profile based on selection - this needs to happen whether or not RFID scanned 
   switch(profile_selected) {
     case 0: 
       rose();
@@ -455,13 +357,13 @@ if (fft_readIndex >= fft_num_readings) {
     case 1:
       winter();
       break;
-    case 3:
+    case 2:
       react();
       break;
-    case 4: 
+    case 3: 
       remote();
       break;
-    case 5:
+    case 4:
       auto_light();
       break;
   }
@@ -469,8 +371,25 @@ if (fft_readIndex >= fft_num_readings) {
   FastLED.show();
 
   // Reset loop when idle
-  if ( ! mfrc522.PICC_IsNewCardPresent()) 
+  if ( ! mfrc522.PICC_IsNewCardPresent()) {
+
+    deviceData.p = profile_selected;
+
+    esp_err_t result1 = esp_now_send(broadcastAddress, (uint8_t *) &deviceData, sizeof(deviceData));
+    
+    if (result1 == ESP_OK) {
+      Serial.println("Sent the idle data with success");
+    }
+    else {
+      Serial.println("Error sending the same data");
+    }
+
+
     return;
+  }
+
+  // if a new card is present, the loop proceeds 
+
     
  
   // Verify that the data has been read - if not, reset
@@ -493,6 +412,49 @@ if (fft_readIndex >= fft_num_readings) {
 
   content.toUpperCase();
   UID = content.substring(1);
+
+  // select profile via RFID tag
+  // very annoyed by lack of switch for string
+  
+  if (UID == "6B 49 B8 B6") {
+    // Blue
+    // winter
+    profile_selected = 1;
+  }
+  else if (UID == "2B 72 BE B6") {
+    // yellow
+    // react
+    profile_selected = 2;
+  }
+  else if (UID == "0B 83 C7 B6") {
+    // White 
+    //remote
+    profile_selected = 3;
+  }
+  else if (UID == "CB 9A BF B6") {
+    // green
+    // auto_light
+    profile_selected = 4;
+  }
+  else {
+    //pink - unknown
+    // not recognized
+    // rose
+    profile_selected = 0;
+  }
+
+  // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
+  deviceData.p = profile_selected;
+
+  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &deviceData, sizeof(deviceData));
+   
+  if (result == ESP_OK) {
+    Serial.println("Sent updated profile with success");
+  }
+  else {
+    Serial.println("Error sending the updated data");
+  }
+  //delay(800);
 
 } 
 
@@ -545,7 +507,7 @@ void remote() {
     fill_solid(leds, NUM_LEDS, CRGB::White);
 
     for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = CHSV(myData.h, myData.s, myData.v);
+      leds[i] = CHSV(remoteData.h, remoteData.s, remoteData.v);
     }
 }
 
