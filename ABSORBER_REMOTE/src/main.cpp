@@ -11,6 +11,15 @@
 #define DOWN_BTN_PIN 26
 #define UP_BTN_PIN 27
 #define PROFILE_BTN_PIN 14
+#define outputA 12
+#define outputB 13
+
+// rotary encoder
+
+
+int counter = 0; 
+int aState;
+int aLastState;  
 
 // profile selection
 
@@ -248,6 +257,17 @@ void setup() {
   button3.attachLongPressStop(longPressStop3);
   button3.attachDuringLongPress(longPress3);
 
+  
+  // rotary encoder setup 
+
+  pinMode (outputA,INPUT_PULLUP);
+  pinMode (outputB,INPUT_PULLUP);
+   
+
+  // Reads the initial state of the outputA
+  aLastState = digitalRead(outputA);   
+  
+
 
 }
 
@@ -354,12 +374,31 @@ void loop() {
     Serial.println(result);
   }
   
+  // rotary encoder test 
 
- if (btn3_click) {
-  delay(300);
-  // this works so I think what is happening is when you send an updated profile, you just need to give it a sec
-  // otherwise the other device sends its value before this updates and you get a ping pong feedback effect
- }
+  aState = digitalRead(outputA); // Reads the "current" state of the outputA
+   // If the previous and the current state of the outputA are different, that means a Pulse has occured
+   if (aState != aLastState){     
+     // If the outputB state is different to the outputA state, that means the encoder is rotating clockwise
+     if (digitalRead(outputB) != aState) { 
+       counter ++;
+       btn_value = btn_value + 10;
+     } else {
+       counter --;
+       btn_value = btn_value - 10;
+     }
+     Serial.print("Position: ");
+     Serial.println(counter);
+   } 
+   aLastState = aState; // Updates the previous state of the outputA with the current state 
+
+  
+
+  if (btn3_click) {
+    delay(300);
+    // this works so I think what is happening is when you send an updated profile, you just need to give it a sec
+    // otherwise the other device sends its value before this updates and you get a ping pong feedback effect
+  }
 
  btn3_click = 0;
  // this delay is necessary for button functionality but is a shame because it makes the lights less responsive to controls 
