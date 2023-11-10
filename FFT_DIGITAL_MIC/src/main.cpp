@@ -16,17 +16,24 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <vector>
+#include <remoteData.h>
+#include <paletteData.h>
+#include <LightEffects.h>
+#include <Rose.h>
+#include <Ice.h>
+#include <CustomHSV.h>
+//#include <LightEffects.h>
+
 
 // profile selection
 
 int profile_selected = 0;
-int prev_profile_selected;
 
 // ESP_NOW
 
 // for now just use one address to send data back to remote - in future could be cool to communicate with other nearby boards
 
-uint8_t broadcastAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
+//uint8_t remoteAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
 // remote address
 //0C:B8:15:C0:E9:5C
 
@@ -44,7 +51,13 @@ typedef struct struct_message {
 } struct_message;
 */
 
+/*
 typedef struct from_remote {
+    // what if you send updates individually this avoids resending static data
+    // does the remote ever need to send more than one value per message?
+    // could even use this structure for profile
+    // param_key
+    // param_val
     int h;
     int s;
     int v;
@@ -65,24 +78,27 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
   //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
+
+
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   memcpy(&remoteData, incomingData, sizeof(remoteData));
-  /*
-  Serial.print("Bytes received: ");
-  Serial.println(len);
-  Serial.print("Char: ");
-  Serial.println(remoteData.a);
-  Serial.print("Int: ");
-  Serial.println(remoteData.b);
-  Serial.print("Float: ");
-  Serial.println(remoteData.c);
-  Serial.print("Bool: ");
-  Serial.println(remoteData.d);
-  Serial.println();
+  
+  // Serial.print("Bytes received: ");
+  // Serial.println(len);
+  // Serial.print("Char: ");
+  // Serial.println(remoteData.a);
+  // Serial.print("Int: ");
+  // Serial.println(remoteData.b);
+  // Serial.print("Float: ");
+  // Serial.println(remoteData.c);
+  // Serial.print("Bool: ");
+  // Serial.println(remoteData.d);
+  // Serial.println();
 
-  */
+  
 }
+*/
 
 // pot
 
@@ -101,6 +117,8 @@ int total = 0;              // the running total
 int average = 0;            // the average
 
 // you want to average each fft bin of interest
+// would also be cool to set num_readings independently for each one sheesh
+// then you could fine tune how different octaves respond to transients etc.
 
 const int num_bins = 16;
 const int fft_num_readings = 10;
@@ -134,6 +152,7 @@ int digiVal;
 int thisdelay = 20;
 uint8_t max_bright = 85;
 
+/*
 // Palette definitions
 
 DEFINE_GRADIENT_PALETTE (rosebud) {
@@ -143,7 +162,7 @@ DEFINE_GRADIENT_PALETTE (rosebud) {
   255, 131, 58, 180
 };
 
-CRGBPalette16 roseBud = rosebud;
+
 
 DEFINE_GRADIENT_PALETTE (ice) {
   0, 63, 58, 156,
@@ -152,8 +171,12 @@ DEFINE_GRADIENT_PALETTE (ice) {
   255, 63, 58, 156
 };
 
-CRGBPalette16 iceFade = ice;
-uint8_t paletteIndex = 0;
+*/
+
+//CRGBPalette16 roseBud = rosebud;
+//CRGBPalette16 iceFade = ice;
+
+//uint8_t paletteIndex = 0;
 
 struct CRGB leds[NUM_LEDS];
 
@@ -166,20 +189,28 @@ int interval = 300;
 
 // declare functions
 
-void palette_move(int palette_interval);
+//void palette_move(int palette_interval);
 void chase(uint8_t chase_interval);
 int chase_i = 1; 
-void breathe(uint8_t breathe_interval, uint8_t breathe_min_bright, uint8_t breathe_max_bright);
+//void breathe(uint8_t breathe_interval, uint8_t breathe_min_bright, uint8_t breathe_max_bright);
 uint8_t bright = 0;
-void winter();
-void rose();
-void remote();
+//void winter();
+void runIce();
+void runRose();
+//void remote();
+void runCustomHSV();
 void react();
 void auto_light();
+void updateProfile(int profile_id);
 
 
-int current_profile;
 String UID;
+
+
+// include patterns after global variables defined
+// going forward probably better to create a seaprate header with shared variables?
+//#include <Rose.h>
+
 
 void setup() 
 {
@@ -208,6 +239,10 @@ void setup()
   // get MAC address for ESP_NOW
   WiFi.mode(WIFI_MODE_STA);
   Serial.println(WiFi.macAddress());
+
+  // Convert the MAC address to a string
+  //char receivedMacStr[18];
+  //snprintf(receivedMacStr, sizeof(receivedMacStr), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   //0C:B8:15:C1:BF:9C
 
   // Init ESP-NOW
@@ -223,7 +258,7 @@ void setup()
   esp_now_register_send_cb(OnDataSent);
 
    // Register peer 1
-  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  memcpy(peerInfo.peer_addr, remoteAddress, 6);
   peerInfo.channel = 0;  
   peerInfo.encrypt = false;
   
@@ -296,6 +331,9 @@ void loop()
 
 
   // use same averaging approach for fft bins 
+  // this probably belongs in a separate file 
+  // also, the FFT is only necessary for reactive patterns - running it for 
+  // non-reactive patterns is inefficient 
 
   for (int bin = 0; bin < num_bins; bin++) {
     // Subtract the oldest value from the running sum
@@ -335,12 +373,70 @@ if (fft_readIndex >= fft_num_readings) {
     //profile_selected = remoteData.p;
   //}
 
-  // this while override the profile selected based on UID not if remoteData is sending that back
+  //////////////// PROCESS REMOTE DATA //////////////////
 
-  profile_selected = remoteData.p;
+  // first thing to do is confirm this is the intended device for the communication 
+  // compare MAC of this device to selected device
+  // maybe this really belongs in the callback onDataRecv
 
-  Serial.println("Profile from remote: ");
-  Serial.println(profile_selected);
+  if(correctDevice == 1) {
+    // correct device has been reached
+    // feedback in this case will be the parameter that is updated and value
+    // as a mock test: 
+
+    //deviceFeedback.deviceResponse = "Correct device successfully reached!";
+
+    Serial.println("proceed to process data");
+
+    if(remoteTransfer.param_key == 2) {
+
+      //update profile if remote has sent value for it
+
+      Serial.println("Parameter value receieved: ");
+      Serial.println(remoteTransfer.param_val);
+
+      if (remoteTransfer.param_val == 111) {
+        // reserved value signal to increment current id by one
+        // start with 0 so use one less than actual number 
+        int numProfiles = 5; 
+        profile_selected = (profile_selected + 1) % numProfiles;
+
+      }
+      else {
+        profile_selected = remoteTransfer.param_val;
+      }
+
+      Serial.println("Loading profile with id: ");
+      Serial.println(profile_selected);
+
+      //updateProfile(profile_selected);
+
+    }
+
+    // only run this when data is received from the remote
+    correctDevice = 0;
+
+  }
+  else {
+    //deviceFeedback.deviceResponse = "Incorrect device contacted.";
+  }
+
+
+  updateProfile(profile_selected);
+
+  // just set profile in this main file
+  // then map params accordingly in separate files
+
+
+
+
+
+  // this will override the profile selected based on UID not if remoteData is sending that back
+
+  // profile_selected = remoteData.p;
+
+  // Serial.println("Profile from remote: ");
+  // Serial.println(profile_selected);
 
 
   // you will need to communicate this selection to the remote whether or not RFID scanned 
@@ -348,14 +444,15 @@ if (fft_readIndex >= fft_num_readings) {
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
 
 
-
+  /*
   // run profile based on selection - this needs to happen whether or not RFID scanned 
   switch(profile_selected) {
     case 0: 
-      rose();
+      runRose();
       break;
     case 1:
-      winter();
+      //winter();
+      runIce();
       break;
     case 2:
       react();
@@ -370,20 +467,27 @@ if (fft_readIndex >= fft_num_readings) {
   
   FastLED.show();
 
+  */
+
   // Reset loop when idle
   if ( ! mfrc522.PICC_IsNewCardPresent()) {
 
-    deviceData.p = profile_selected;
+    // no card scanned so just sending back the same profile
+    // is it really necessary to send data if the profile has not changed?
+    
+    //remoteTransfer.param_key = 0;
+    //remoteTransfer.param_val = profile_selected;
+    /*
 
-    esp_err_t result1 = esp_now_send(broadcastAddress, (uint8_t *) &deviceData, sizeof(deviceData));
+    esp_err_t result1 = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
     
     if (result1 == ESP_OK) {
-      Serial.println("Sent the idle data with success");
+      //Serial.println("Sent the idle data with success");
     }
     else {
       Serial.println("Error sending the same data");
     }
-
+    */
 
     return;
   }
@@ -443,10 +547,11 @@ if (fft_readIndex >= fft_num_readings) {
     profile_selected = 0;
   }
 
+  /*
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
   deviceData.p = profile_selected;
 
-  esp_err_t result = esp_now_send(broadcastAddress, (uint8_t *) &deviceData, sizeof(deviceData));
+  esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceData, sizeof(deviceData));
    
   if (result == ESP_OK) {
     Serial.println("Sent updated profile with success");
@@ -455,16 +560,32 @@ if (fft_readIndex >= fft_num_readings) {
     Serial.println("Error sending the updated data");
   }
   //delay(800);
+  */
+  // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
+  //remoteTransfer.param_key = 0;
+  //remoteTransfer.param_val = profile_selected;
+
+  /*
+
+  esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
+   
+  if (result == ESP_OK) {
+    Serial.println("Sent updated profile with success");
+  }
+  else {
+    Serial.println("Error sending the updated data");
+  }
+  */
 
 } 
-
+/*
 void breathe(uint8_t breathe_interval, uint8_t breathe_min_bright, uint8_t breathe_max_bright) {
 
   uint8_t sinBright = beatsin8(breathe_interval, breathe_min_bright, breathe_max_bright, 0, 0);
   FastLED.setBrightness(sinBright);
 
 } // breathe
-
+*/
 
 void chase(uint8_t chase_interval) {
 
@@ -482,6 +603,7 @@ void chase(uint8_t chase_interval) {
 
 } // chase
 
+/*
 void palette_move(int palette_interval) {
 
   EVERY_N_MILLIS(palette_interval) {
@@ -490,19 +612,35 @@ void palette_move(int palette_interval) {
 
 }
 
+
 void winter() {
     fill_palette(leds, NUM_LEDS, paletteIndex, 255 / NUM_LEDS, iceFade, 255, LINEARBLEND);
     breathe(15, 10, max_bright);
     palette_move(1);
 }
 
-void rose() {
-    fill_palette(leds, NUM_LEDS, 0, 255 / NUM_LEDS, roseBud, 255, LINEARBLEND);
-    
-    //FastLED.setBrightness(map(analogVal, 3000, 3275, 0, max_bright));
-    breathe(30, 10, max_bright);
+*/
+
+void runIce() {
+  Ice ice;
+  ice.runPattern(leds, NUM_LEDS, max_bright);
 }
 
+void runRose() {
+  Rose rose;
+  // use default params if not provided 
+  // otherwise use provided params
+  rose.runPattern(leds, NUM_LEDS, max_bright, 30, 10);
+}
+
+void runCustomHSV() {
+  CustomHSV customHSV;
+  customHSV.runPattern(leds, NUM_LEDS, remoteTransfer);
+}
+
+
+
+/*
 void remote() {
     fill_solid(leds, NUM_LEDS, CRGB::White);
 
@@ -510,6 +648,8 @@ void remote() {
       leds[i] = CHSV(remoteData.h, remoteData.s, remoteData.v);
     }
 }
+*/
+
 
 void react() {
       int groups = 10;
@@ -541,4 +681,27 @@ void auto_light() {
       for (int i = 0; i < NUM_LEDS; i++) {
           leds[i] = CHSV(0, 0, max(0, (255 - average/17)));
       }
+}
+
+void updateProfile(int profile_id) {
+  // run profile based on selection - this needs to happen whether or not RFID scanned 
+  switch(profile_id) {
+    case 0: 
+      runRose();
+      break;
+    case 1:
+      //winter();
+      runIce();
+      break;
+    case 2:
+      react();
+      break;
+    case 3: 
+      runCustomHSV();
+      break;
+    case 4:
+      auto_light();
+      break;
+  }
+  FastLED.show();
 }

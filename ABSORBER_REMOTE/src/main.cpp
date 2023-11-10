@@ -2,6 +2,8 @@
 #include <esp_now.h>
 #include <WiFi.h>
 #include <OneButton.h>
+#include <cmath>
+
 
 #define POT_LED_PIN 18
 #define SLIDE_LED_PIN 19
@@ -11,21 +13,57 @@
 #define DOWN_BTN_PIN 26
 #define UP_BTN_PIN 27
 #define PROFILE_BTN_PIN 14
-#define outputA 12
-#define outputB 13
+#define encoderPinA 12
+#define encoderPinB 13
+// clockwise direction
+#define DIRECTION_CW 0  
+// counter-clockwise direction 
+#define DIRECTION_CCW 1  
+// #define encoderPinA 33
+// #define encoderPinB 25
 
 // rotary encoder
 
+volatile unsigned long lastEncRun = 0;
+volatile float encoderCount = 0;
+// could also do this rounding within relevant functions
+int roundedEncCount;
+int lastRoundedEncCount;
+static boolean rotating=false;
+
+/*
+volatile int direction = DIRECTION_CW;
+volatile unsigned long lastEncRun = 0;
+
+volatile int currValA;
+volatile int currValB;
+
+volatile int encoderCount = 0;
+int lastEncoderCount = 0;
 
 int counter = 0; 
 int aState;
 int aLastState;  
 
-// profile selection
+int runningInt = 0;
+
+*/
+
+// perhaps the remote should be informed of the profile selected at the device 
+// if a certain profile has a parameter with a different range of values, the remote could adjust accordingly
+// otherwise - could apply a mapping to the remote values on the device end
+// what about the number of editable parameters for different presets? This is a real kicker - you will probably want two way coms
+// about profile for this reason - can send metadata on classes to remote 
+// maybe need a new struct for this
+
+// profile & device selection
 
 int new_profile_selected;
 int profile_selected = 0;
+int numProfiles = 5;
 int device_selected = 0;
+int numDevs = 2;
+int numBtnModes = 5; 
 
 // button setup
 
@@ -39,13 +77,21 @@ OneButton button3(PROFILE_BTN_PIN, true);
 int pot_value;
 int slide_value;
 int btn_value = 100;
+// switch the functionality of the button by adjusting this
+int btnMode = 0; 
+int btnVal = 0;
 
 // ESP_NOW
 
 // REPLACE WITH YOUR RECEIVER MAC Address
-uint8_t* broadcastAddressSelected; //this is a pointer
+// maybe better to do declare here then define in setup - see random nerd for possible tutorial on doing automatically 
+
+//uint8_t* broadcastAddressSelected; //this is a pointer
 uint8_t broadcastAddress1[] = {0x0C, 0xB8, 0x15, 0xC1, 0xBF, 0x9C};
 uint8_t broadcastAddress2[] = {0x78, 0xE3, 0x6D, 0x19, 0xFB, 0xEC};
+
+// need to set a default for selected address
+uint8_t* broadcastAddressSelected = broadcastAddress1;
 
 
 //uint8_t broadcastAddress[] = {0C:B8:15:C1:BF:9C};
@@ -65,12 +111,12 @@ typedef struct struct_message {
 } struct_message;
 */
 
-typedef struct from_remote {
-    int h;
-    int s;
-    int v;
-    int p;
-} from_remote;
+// typedef struct from_remote {
+//     int h;
+//     int s;
+//     int v;
+//     int p;
+// } from_remote;
 
 // this comes from all connected devices... 
 // so currently if you change the profile on device 1, device 2 will send its unchanged profile to the remote
@@ -82,23 +128,57 @@ typedef struct from_remote {
 // for now I can manually change the id number each time I flash to different device but going forward, best to have just one script
 // is it possible to check the sender here and reject one based on mac?
 
-
+/*
 typedef struct to_remote {
     int p;
 } to_remote;
+*/
+
+// my new struct approach: 
+
+
+
+typedef struct remoteData {
+    // what if you send updates individually this avoids resending static data
+    // does the remote ever need to send more than one value per message?
+    // could even use this structure for profile
+    // may also need mac address of target device - does this need to be sent back to remote?
+    // instead of blocking out all irrelevant incoming data, only send data if you are the selected device
+    // better yet, only send data if there is actually a change to send! 
+    // param_key
+    // param_val
+    //int h;
+    //int s;
+    //int v;
+    //int p;
+    char target_dev[18];
+    int param_key = 0; 
+    int param_val = 0; 
+} remoteData;
+
+// feedback from remote
+typedef struct remoteResponse {
+    // this will store any error 
+    // or if param is changed successfully can be string containing the parameter and new value
+    char deviceResponse[100];
+} remoteResponse;
+
+remoteResponse deviceFeedback;
+remoteData remoteTransfer;
 
 // Create a struct_message called remoteData
-from_remote remoteData;
-to_remote deviceData;
+//from_remote remoteData;
+//to_remote deviceData;
 
 // callback when data is sent
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
-  //Serial.print("\r\nLast Packet Send Status:\t");
-  //Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
 // callback function that will be executed when data is received
 void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+  /*
 
   // do this in if statement below so only data from selected device is allowed
   //memcpy(&deviceData, incomingData, sizeof(deviceData));
@@ -122,7 +202,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     // You can put your data processing logic here
     // ...
     // copy the data to memory
-    memcpy(&deviceData, incomingData, sizeof(deviceData));
+    memcpy(&remoteTransfer, incomingData, sizeof(remoteTransfer));
     //Serial.println("Data received from selected mac");
   } else {
     // Received data from an unknown device, reject it or take appropriate action
@@ -130,28 +210,40 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     //Serial.println(receivedMacStr);
   }
 
+  */
 
-  /*
+  // for (int i = 0; i < len; i++) {
+  //   Serial.print(String(incomingData[i], HEX) + " ");
+  // }
+  //Serial.println();
+
+  memcpy(&deviceFeedback, incomingData, sizeof(deviceFeedback));
   Serial.print("Bytes received: ");
   Serial.println(len);
-  Serial.print("Char: ");
-  Serial.println(remoteData.a);
-  Serial.print("Int: ");
-  Serial.println(remoteData.b);
-  Serial.print("Float: ");
-  Serial.println(remoteData.c);
-  Serial.print("Bool: ");
-  Serial.println(remoteData.d);
-  Serial.println();
+  Serial.println("Device response: ");
+  Serial.println(deviceFeedback.deviceResponse);
 
-  */
 }
 
 // put function declarations here:
 //int myFunction(int, int);
 
+// rotary encoder 
+
+void rotEncoder()
+{
+  rotating=true; // If motion is detected in the rotary encoder,
+                 // set the flag to true
+}
+
 // track if button pushed 
-int btn3_click = 0;
+// int btn3_click = 0;
+
+void confirmConnection(uint8_t* broadcastAddressSelected);
+int readEncoder(int encInc, int limit);
+void selectDevice(int device_selected);
+void handleEncoder();
+void IRAM_ATTR ISR_encoder();
 
 // ----- button 1 callback functions
 
@@ -184,6 +276,7 @@ void setup() {
   //int result = myFunction(2, 3);
   Serial.begin(115200);   // Initiate a serial communication
   while(!Serial);
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(POT_LED_PIN, OUTPUT);
   pinMode(SLIDE_LED_PIN, OUTPUT);
   pinMode(BTN_LED_PIN, OUTPUT);
@@ -260,14 +353,11 @@ void setup() {
   
   // rotary encoder setup 
 
-  pinMode (outputA,INPUT_PULLUP);
-  pinMode (outputB,INPUT_PULLUP);
-   
-
-  // Reads the initial state of the outputA
-  aLastState = digitalRead(outputA);   
-  
-
+  pinMode (encoderPinA,INPUT_PULLUP);
+  pinMode (encoderPinB,INPUT_PULLUP);
+  //pinMode (encoderPinA,INPUT);
+  //pinMode (encoderPinB,INPUT);
+  attachInterrupt(digitalPinToInterrupt(encoderPinA), rotEncoder, CHANGE);
 
 }
 
@@ -283,6 +373,10 @@ void loop() {
   //Serial.println(deviceData.p);
   //profile_selected = deviceData.p;
 
+  // currently you are reading a load of analog vals which will fluctuate without some involved averaging 
+  // goal is to switch to rotary encoders and only send relevant data i.e. changed
+
+  /*
   pot_value = analogRead(POT_PIN);
  
   //Serial.println("POT VAL: ");
@@ -302,6 +396,8 @@ void loop() {
   btn_value = max(0, min(btn_value, 250));
   analogWrite(BTN_LED_PIN, btn_value);
 
+  */
+
   // Set values to send
   //strcpy(remoteData.a, "THIS IS A CHAR");
   //remoteData.b = random(1,20);
@@ -309,7 +405,22 @@ void loop() {
   // get data from device 
   //Serial.println("Profile on device loop: ");
   //Serial.println(deviceData.p);
-  profile_selected = deviceData.p;
+  //profile_selected = deviceData.p;
+
+  /*
+
+  if(remoteTransfer.param_key == 0) {
+
+    //update profile if remote has sent value for it
+
+    profile_selected = remoteTransfer.param_val;
+
+    //Serial.println("Profile from remote: ");
+    //Serial.println(profile_selected);
+
+  }
+
+  */
 
   // if there is no button click you just want to send the same profile that is currently on the device back to it
   // maybe I should just make a separate struct for the profile data and only send it on the click
@@ -323,9 +434,9 @@ void loop() {
   // on the other hand, do you really need to send data every loop? 
   // maybe come up with a strategy to only send data when a value changes
 
-  remoteData.h = pot_value;
-  remoteData.s = slide_value;
-  remoteData.v = btn_value;
+  //remoteData.h = pot_value;
+  //remoteData.s = slide_value;
+  //remoteData.v = btn_value;
   // just send back what you got if there is no click 
   // if there is a click this must be updated to the new selected profile
   //delay(100);
@@ -334,7 +445,7 @@ void loop() {
   // select correct device
   // is there a possibility here that I will copy the selected profile from the previous device over to this one in transition?
 
-
+  /*
   // this comes from dbl click 3 currently
   switch (device_selected) {
     case 0: 
@@ -344,63 +455,200 @@ void loop() {
       broadcastAddressSelected = broadcastAddress2;
       break;
   }
-  
 
-  remoteData.p = profile_selected;
+  // set target device to this address converted to char 
+  char targetDevStr[18];
+  snprintf(targetDevStr, sizeof(targetDevStr), "%02X:%02X:%02X:%02X:%02X:%02X", broadcastAddressSelected[0], broadcastAddressSelected[1], broadcastAddressSelected[2], broadcastAddressSelected[3], broadcastAddressSelected[4], broadcastAddressSelected[5]);
+  remoteTransfer.target_dev = targetDevStr;
+  //strcpy(remoteTransfer.target_dev, targetDevStr);
+  */
+
+  //remoteData.p = profile_selected;
+  // remoteTransfer.param_key = 0; 
+  // remoteTransfer.param_val = profile_selected;
  
+  /*
+
   if (btn3_click == 0){
-    remoteData.p = profile_selected;
+    // do I really need to repeat this?
+    //remoteData.p = profile_selected;
   }
   else {
     Serial.println("Button Clicked Use New Value: ");
     Serial.println(new_profile_selected);
-    remoteData.p = new_profile_selected;
+    //remoteData.p = new_profile_selected;
+    //remoteTransfer.param_key = 0; 
+    //remoteTransfer.param_val = new_profile_selected;
     
   }
+  */
 
   // Send message via ESP-NOW
 
   //Serial.println("Sending Profile Selection: ");
   //Serial.println(remoteData.p);
 
-  esp_err_t result = esp_now_send(broadcastAddressSelected, (uint8_t *) &remoteData, sizeof(remoteData));
+  /*
+
+  esp_err_t result = esp_now_send(broadcastAddressSelected, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
   
   if (result == ESP_OK) {
     // if you comment this line out the LEDs on the remote go out lol
-    Serial.println("Sent with success");
+    //Serial.println("Sent with success");
   }
   else {
-    Serial.println("Error sending the data");
-    Serial.println(result);
+    //Serial.println("Error sending the data");
+    //Serial.println(result);
   }
+  */
+
+  // behavior of rotary encoder depends which mode it is in 
+  // increment size for encoder 
+  // will you ever really use more than 1?
+  // default
+  float encInc = 0.5; 
+
+  // encLimit when to loop back to start of possible selections
+  
+  int encLimit = 100; 
+  // what if there is a hard ceiling? as in you don't want to loop back but stop at max value
+  // set this to 1 
+  int hasCeiling = 0;
+
+  // in some instances you will want the device to update as you scroll e.g. adjust hue 
+  // in others, nothing should happen until a button click confirms e.g. update profile 
+
+
+  switch(btnMode) {
+    case 0: 
+      // in mode 0 use it to scroll through devices
+
+   
+      break;
+    case 1:
+      // device mode
+      encInc = 0.5; 
+      // set limit to equal number of devices/profiles etc 
+      // not index of highest one 
+      encLimit = 2;
+      break;
+    case 2: 
+      // profile mode
+      encInc = 0.5;
+      encLimit = 5;
+      break;
+    case 3: 
+      // parameter mode
+      break; 
+  }
+
+  while (rotating) {
+    //delay(2);  // debounce by waiting 2 milliseconds
+               // (Just one line of code for debouncing)
+
+    if(millis() - lastEncRun < 2)
+      return;
+
+    if (digitalRead(encoderPinA) == digitalRead(encoderPinB)) {
+      //direction = 1;
+      //encoderCount--;
+      encoderCount = encoderCount - encInc;
+    }
+    else {
+      //encoderCount++;
+      encoderCount = encoderCount + encInc;
+      //direction = 2;
+    }                          
+    
+    lastEncRun = millis();
+    rotating=false; // Reset the flag
+    
+  }
+
+  // convert to int 
+  roundedEncCount = static_cast<int>(std::round(encoderCount));
+  //Serial.println(roundedEncCount);
+
+  // apply limits if applicable
+
+  roundedEncCount = max(0, ((roundedEncCount + 1) % (encLimit)));
+
+  
+
+  if (roundedEncCount != lastRoundedEncCount) {
+    Serial.println("Current Selection: ");
+    Serial.println(roundedEncCount);
+  }
+
+  lastRoundedEncCount = roundedEncCount;
+  
+
+  //Serial.println("EncoderCounter: ");
+  //Serial.println(encoderCount);
+  
   
   // rotary encoder test 
-
-  aState = digitalRead(outputA); // Reads the "current" state of the outputA
-   // If the previous and the current state of the outputA are different, that means a Pulse has occured
-   if (aState != aLastState){     
-     // If the outputB state is different to the outputA state, that means the encoder is rotating clockwise
-     if (digitalRead(outputB) != aState) { 
-       counter ++;
-       btn_value = btn_value + 10;
-     } else {
-       counter --;
-       btn_value = btn_value - 10;
-     }
-     Serial.print("Position: ");
-     Serial.println(counter);
-   } 
-   aLastState = aState; // Updates the previous state of the outputA with the current state 
-
+  // Reads the "current" state of the encoderPinA
   
+  
+  //aState = digitalRead(encoderPinA); 
+  //Serial.println(aState);
+  /*
+   // If the previous and the current state of the encoderPinA are different, that means a Pulse has occured
+   // in one tick, it goes 101 so I've tried to modify this so it only runs on completion of the tick
+   if (aState != aLastState && aState == 1){     
+     // If the encoderPinB state is different to the encoderPinA state, that means the encoder is rotating clockwise
+    if (digitalRead(encoderPinB) != aState) { 
+      counter ++;
+      if (hasCeiling != 0) {
+        btnVal = min(btnVal + encInc, hasCeiling);
+      }
+      else {
+        btnVal = (btnVal + encInc) % encLimit;
+      }
+       
+
+    } 
+    else {
+      counter --;
+      if (hasCeiling != 0) {
+        btnVal = max(btnVal - encInc, 0);
+      }
+      else {
+        // shouldn't ever go negative 
+        // this will set floor at 0
+        //btnVal = max(((btnVal - encInc) % encLimit), 0);
+        // this will take abs 
+        //btnVal = abs((btnVal - encInc) % encLimit);
+        btnVal = abs((btnVal - encInc)) % encLimit;
+      }
+
+      //btn_value = btn_value - 10;
+    }
+    Serial.print("btnVal: ");
+    Serial.println(btnVal);
+    Serial.print("counter: ");
+    Serial.println(counter);
+   } 
+   // Updates the previous state of the encoderPinA with the current state
+   aLastState = aState; 
+  */
+  
+
+
+
+  /*
 
   if (btn3_click) {
     delay(300);
     // this works so I think what is happening is when you send an updated profile, you just need to give it a sec
     // otherwise the other device sends its value before this updates and you get a ping pong feedback effect
   }
+  */
 
- btn3_click = 0;
+ //runningInt = 0;
+
+ //btn3_click = 0;
  // this delay is necessary for button functionality but is a shame because it makes the lights less responsive to controls 
  // either find a way to capture the button click without delay - or use different input source 
  // or or separate the profile data from the HSV data 
@@ -493,10 +741,43 @@ void longPressStop2() {
 
 
 void click3() {
+
+  // base behavior on btnMode 
+  // need a button mode that does nothing! or just reports something 
+
+  switch(btnMode) {
+    case 0: 
+      // default mode 
+      // do nothing or just display some info / graphic
+      break;
+    case 1: 
+      // select device with chosen ID
+      selectDevice(roundedEncCount);
+
+      break;
+    case 2: 
+      // select profile with chosen ID
+      // profile is tracked at the device
+      remoteTransfer.param_key = 2; 
+      // reserve this to mean increment pattern by 1
+      remoteTransfer.param_val = roundedEncCount; 
+      Serial.println("Select preset with ID: "); 
+      Serial.println(remoteTransfer.param_val);
+
+      // confirm the connection and pass the data
+      confirmConnection(broadcastAddressSelected);
+      break;
+  }
+
+
+
+
+
+  /*
   btn3_click = 1;
   Serial.println("Button 3 click.");
   // if the profile has been updated at the device
-  profile_selected = deviceData.p;
+  //profile_selected = deviceData.p;
   Serial.println("Profile on device: ");
   Serial.println(profile_selected);
   //btn_value = btn_value + 5;
@@ -509,6 +790,7 @@ void click3() {
   }
   Serial.println("Profile Selected: ");
   Serial.println(profile_selected);
+  */
   /*
   // Send message via ESP-NOW
 
@@ -527,31 +809,140 @@ void click3() {
  
 } // click3
 
-// This function will be called when the button1 was pressed 2 times in a short timeframe.
+// This function will be called when the button3 was pressed 2 times in a short timeframe.
 void doubleclick3() {
   Serial.println("Button 3 doubleclick.");
-  if (device_selected == 0) {
-    device_selected = 1;
+
+  // use double click for mode specific increment function 
+  // e.g. skip to next profile in profile mode 
+  // skip to next device in device mode
+
+  switch(btnMode) {
+    case 0: 
+      // default mode -- do nothing
+      break; 
+    case 1:
+      // it is safe to handle device selection here, because the device cannot be selected from the absorber
+      // what if it is selected from webapp?
+      // the remote or app are still the final element that need to know which device is selected
+      // two devices but index starts at 0 so 
+      device_selected = (device_selected + 1) % (numDevs);
+      
+      selectDevice(device_selected);
+      // after selection exit to default mode
+      //btnMode = 0; 
+      break;
+    case 2: 
+      // increment profile
+      // handle the incrementing on the device side 
+      // just send code here that tells it to increment by one 
+      remoteTransfer.param_key = 2; 
+      // reserve this to mean increment pattern by 1
+      remoteTransfer.param_val = 111; 
+      // confirm the connection and pass the data
+      confirmConnection(broadcastAddressSelected);
+      break;
   }
-  else {
-    device_selected = 0;
-  }
+
+
 } // doubleclick3
 
 
 // This function will be called once, when the button1 is pressed for a long time.
 void longPressStart3() {
+
+
+  // use this to increment through the button modes 
+
+  
+  btnMode = (btnMode + 1) % (numBtnModes); 
+
+  Serial.println("Set button to mode: ");
+  Serial.println(btnMode);
+
+  // may need to request info on current value of relevant parameter from device now 
+  // or can I continue to handle this entirely on device side?
+
+  /*
   Serial.println("Button 1 longPress start");
+  
+  // switch selected device
+
+  if (device_selected == 0) {
+    Serial.println("Connecting to device2.");
+    device_selected = 1;
+    broadcastAddressSelected = broadcastAddress2;
+  }
+  else {
+    Serial.println("Connecting to device1.");
+    device_selected = 0;
+    broadcastAddressSelected = broadcastAddress1;
+  }
+
+  confirmConnection(broadcastAddressSelected);
+
+  */
+
 } // longPressStart3
 
 
 // This function will be called often, while the button1 is pressed for a long time.
 void longPress3() {
-  Serial.println("Button 3 longPress...");
+  //Serial.println("Button 3 longPress...");
 } // longPress3
 
 
 // This function will be called once, when the button1 is released after beeing pressed for a long time.
 void longPressStop3() {
-  Serial.println("Button 3 longPress stop");
+  //Serial.println("Button 3 longPress stop");
 } // longPressStop3
+
+void confirmConnection(uint8_t* broadcastAddressSelected) {
+
+  // set target device to this address converted to char 
+  char targetDevStr[18];
+  snprintf(targetDevStr, sizeof(targetDevStr), "%02X:%02X:%02X:%02X:%02X:%02X", broadcastAddressSelected[0], broadcastAddressSelected[1], broadcastAddressSelected[2], broadcastAddressSelected[3], broadcastAddressSelected[4], broadcastAddressSelected[5]);
+
+  strncpy(remoteTransfer.target_dev, targetDevStr, sizeof(remoteTransfer.target_dev));
+  remoteTransfer.target_dev[sizeof(remoteTransfer.target_dev) - 1] = '\0'; // Ensure null-terminated
+
+  Serial.println("Identify yoself! Device confirmation requested for:");
+  Serial.println(remoteTransfer.target_dev);
+
+  // request confirmation from device
+
+  esp_err_t result = esp_now_send(broadcastAddressSelected, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
+  
+  if (result == ESP_OK) {
+    // if you comment this line out the LEDs on the remote go out lol
+    Serial.println("Device confirmation request sent with success for:");
+    Serial.println(remoteTransfer.target_dev);
+  }
+  else {
+    Serial.println("Error sending the device confirmation request");
+    Serial.println(result);
+  }
+
+};
+
+void selectDevice(int device_selected) {
+  switch(device_selected) {
+    case 0: 
+      Serial.println("Connecting to device1.");
+      device_selected = 0;
+      broadcastAddressSelected = broadcastAddress1;
+      break;
+    case 1:
+      Serial.println("Connecting to device2.");
+      device_selected = 1;
+      broadcastAddressSelected = broadcastAddress2;
+      break; 
+    case 2: 
+      Serial.println("You don't have this many devices.");
+  }
+  confirmConnection(broadcastAddressSelected);
+};
+
+
+
+
