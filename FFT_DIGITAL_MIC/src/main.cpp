@@ -308,7 +308,6 @@ void loop()
     // add the reading to the total:
   total = total + readings[readIndex];
   // advance to the next position in the array:
-
   
   readIndex = readIndex + 1;
 
@@ -318,11 +317,8 @@ void loop()
     readIndex = 0;
   }
 
-  
-
   // calculate the average:
   average = total / numReadings;
-
 
   // use same averaging approach for fft bins 
   // this probably belongs in a separate file 

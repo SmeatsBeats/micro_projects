@@ -31,7 +31,14 @@ typedef struct remoteResponse {
 
 // this is the address to send profile data back to remote
 uint8_t remoteAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
+
+///////////// FOR NOW YOU MUST MANUALLY LOAD CORRECT MAC TO EACH DEVICE //////////
+
+// device 0
 char thisDevMac[18] = "0C:B8:15:C1:BF:9C";
+// device 1
+//{0x78, 0xE3, 0x6D, 0x19, 0xFB, 0xEC}
+//char thisDevMac[18] = "78:E3:6D:19:FB:EC";
 
 // does this need to be created yet?
 // yes because communication from remote could come at any time

@@ -13,9 +13,9 @@
 
 // lcd
 
-// be sure not to use an input only pin 35, 34, 39, 36
-//const int rs = 27, en = 26, d4 = 25, d5 = 33, d6 = 32, d7 = 18;
-//LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+//be sure not to use an input only pin 35, 34, 39, 36
+const int rs = 27, en = 26, d4 = 25, d5 = 33, d6 = 32, d7 = 18;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 
 // rotary encoder
@@ -42,7 +42,7 @@ int profile_selected = 0;
 int numProfiles = 5;
 int device_selected = 0;
 int numDevs = 2;
-int numBtnModes = 5; 
+int numBtnModes = 3; 
 
 // button setup
 
@@ -145,25 +145,10 @@ void setup() {
 
   // setup lcd 
 
-  // set up the LCD's number of columns and rows:
-  //lcd.begin(16, 2);
-  // Print a message to the LCD.
-  //lcd.print("howdy, wirral!");
-
-  
-
-  //lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  //lcd.print(roundedEncCount);
-  //lcd.print(millis() / 1000);
-  //lcd.print("test");
-
-  // Once ESPNow is successfully Init, we will register for Send CB to
-  // get the status of Trasnmitted packet
-
-  //esp_now_register_send_cb(OnDataSent);
-
-  //esp_now_register_recv_cb(OnDataRecv);
+  //set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  //Print a message to the LCD.
+  lcd.print("Welcome!");
 
 
   // get MAC address for ESP_NOW
@@ -177,6 +162,13 @@ void setup() {
     Serial.println("Error initializing ESP-NOW");
     return;
   }
+
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+
+  esp_now_register_send_cb(OnDataSent);
+
+  esp_now_register_recv_cb(OnDataRecv);
 
   
   //esp_now_peer_info_t peerInfo;
@@ -317,7 +309,14 @@ void loop() {
   }
 
   // convert to int 
+  // what does static mean here?
   roundedEncCount = static_cast<int>(std::round(encoderCount));
+
+  // do I need to now set encoderCount to this? 
+  // wow this made sense in my head but did not work
+  // maybe best to do this conversion later, before actually using the value as index
+  //encoderCount = static_cast<float>(roundedEncCount);
+
   //Serial.println(roundedEncCount);
 
   // apply limits if applicable
@@ -329,6 +328,17 @@ void loop() {
     Serial.println(roundedEncCount);
  
   }
+
+  // put your main code here, to run repeatedly:
+  // set the cursor to column 0, line 1
+  // (note: line 1 is the second row, since counting begins with 0):
+  //lcd.clear();
+  lcd.setCursor(0, 1);
+  // print the number of seconds since reset:
+  //lcd.print(millis() / 1000);
+  lcd.print(roundedEncCount);
+
+  // when you go to double digits and back to single, the 0 will stay
 
   lastRoundedEncCount = roundedEncCount;
 
@@ -350,11 +360,11 @@ void click1() {
     case 0: 
       // default mode 
       // do nothing or just display some info / graphic
+
       break;
     case 1: 
       // select device with chosen ID
       selectDevice(roundedEncCount);
-
       break;
     case 2: 
       // select profile with chosen ID
@@ -422,6 +432,31 @@ void longPressStart1() {
 
   // may need to request info on current value of relevant parameter from device now 
   // or can I continue to handle this entirely on device side?
+
+  // update the screen when mode changed
+  switch(btnMode) {
+    case 0: 
+      // default mode 
+      // do nothing or just display some info / graphic
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Welcome!");
+      break;
+    case 1: 
+      // select device with chosen ID
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Select Device:");
+
+      break;
+    case 2: 
+      // select profile with chosen ID
+      // profile is tracked at the device
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Select Profile:");
+      break;
+  }
 
 } // longPressStart3
 
