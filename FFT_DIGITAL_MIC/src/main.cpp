@@ -295,12 +295,6 @@ void loop()
   
   */
 
- // test pot 
-
- int potVal = analogRead(POT_PIN);
- //Serial.println("POT VALUE: ");
- //Serial.println(potVal);
-
   // test photocell 
 
   int ambLight = analogRead(LIGHT_PIN);
