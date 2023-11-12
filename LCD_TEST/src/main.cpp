@@ -10,8 +10,6 @@
 const int rs = 27, en = 26, d4 = 25, d5 = 33, d6 = 32, d7 = 18;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
-
-
 // put function declarations here:
 //int myFunction(int, int);
 

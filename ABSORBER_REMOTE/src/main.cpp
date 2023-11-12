@@ -16,16 +16,23 @@
 //be sure not to use an input only pin 35, 34, 39, 36
 const int rs = 27, en = 26, d4 = 25, d5 = 33, d6 = 32, d7 = 18;
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
-
+boolean resetLCD = false;
+String LCDLineOne; 
+String LCDLineTwo;
 
 // rotary encoder
 
 volatile unsigned long lastEncRun = 0;
-volatile float encoderCount = 0;
+volatile unsigned long lastIntDetect = 0;
+int encoderCount = 0;
 // could also do this rounding within relevant functions
 int roundedEncCount;
+int encoderGuess = 0;
 int lastRoundedEncCount;
+int convertedEncCount;
 static boolean rotating=false;
+static boolean intDetect=false;
+int numGuesses = 0;
 
 
 // perhaps the remote should be informed of the profile selected at the device 
@@ -108,6 +115,43 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(len);
   Serial.println("Device response: ");
   Serial.println(deviceFeedback.deviceResponse);
+
+  // print feedback from device to display
+  lcd.setCursor(0,1);
+  lcd.print("         ");
+  lcd.setCursor(0,1);
+  lcd.print(deviceFeedback.deviceResponse);
+
+  resetLCD = true;
+  // wait
+
+  delay(3000);
+
+  //lcd.clear();
+  //lcd.setCursor(0,0);
+  //lcd.print(LCDLineOne);
+  lcd.setCursor(0,1);
+  // get the length of the msg in next version hehe
+  lcd.print("                              ");
+  lcd.setCursor(0,1);
+  lcd.print(LCDLineTwo);
+
+  resetLCD = false;
+
+  // what if there is an input during feedback? 
+  // ideally - clear feedback 
+
+
+  // if feedback is too long, scroll it work on this later :) 
+  /*
+
+  for (int positionCounter = 0; positionCounter < 13; positionCounter++) {
+    // scroll one position left:
+    lcd.scrollDisplayLeft();
+    // wait a bit:
+    delay(150);
+  }
+  */
 
 }
 
@@ -220,16 +264,18 @@ void loop() {
   
   button1.tick();
 
-  if(remoteTransfer.param_key == 0) {
+  // is this doing anything?
 
-    //update profile if remote has sent value for it
+  // if(remoteTransfer.param_key == 0) {
 
-    profile_selected = remoteTransfer.param_val;
+  //   //update profile if remote has sent value for it
 
-    //Serial.println("Profile from remote: ");
-    //Serial.println(profile_selected);
+  //   profile_selected = remoteTransfer.param_val;
 
-  }
+  //   //Serial.println("Profile from remote: ");
+  //   //Serial.println(profile_selected);
+
+  // }
 
   
 
@@ -245,19 +291,23 @@ void loop() {
   // on the other hand, do you really need to send data every loop? 
   // maybe come up with a strategy to only send data when a value changes
   
+  //encoderCount = lastRoundedEncCount;
 
   // behavior of rotary encoder depends which mode it is in 
   // increment size for encoder 
   // will you ever really use more than 1?
   // default
+
+  // need to move this functionality into the part that guesses the increment
+
   float encInc = 0.5; 
 
   // encLimit when to loop back to start of possible selections
   
-  int encLimit = 100; 
+  int encLimit = 60; 
   // what if there is a hard ceiling? as in you don't want to loop back but stop at max value
   // set this to 1 
-  int hasCeiling = 0;
+  int encLoop = 0;
 
   // in some instances you will want the device to update as you scroll e.g. adjust hue 
   // in others, nothing should happen until a button click confirms e.g. update profile 
@@ -274,11 +324,13 @@ void loop() {
       // set limit to equal number of devices/profiles etc 
       // not index of highest one 
       encLimit = 2;
+      encLoop = 1;
       break;
     case 2: 
       // profile mode
       encInc = 0.5;
       encLimit = 5;
+      encLoop = 1;
       break;
     case 3: 
       // parameter mode
@@ -289,58 +341,174 @@ void loop() {
     //delay(2);  // debounce by waiting 2 milliseconds
                // (Just one line of code for debouncing)
 
-    if(millis() - lastEncRun < 2)
-      return;
+    // what if I fully commit to this rounding idea and instead of debouncing with timer 
+    // just assume that the majority of registered pulses will be correct
+    // bad assumption
 
+    // ideally - isolate group between 5 and 50 
+
+    int timeDiff = millis() - lastEncRun;
+
+    if(timeDiff < 5)
+      return;
+ 
     if (digitalRead(encoderPinA) == digitalRead(encoderPinB)) {
       //direction = 1;
       //encoderCount--;
-      encoderCount = encoderCount - encInc;
+      // this is not ruling out all occurrences more than 10 ms after beginning of detent 
+      // this rules out occurrences that do not occur with in 10 ms of prev
+      //encoderCount = encoderCount - encInc;
+      encoderGuess--;
+      //Serial.println("decrement");
+      
     }
     else {
       //encoderCount++;
-      encoderCount = encoderCount + encInc;
+      //encoderCount = encoderCount + encInc;
+      //Serial.println("Increment");
+      encoderGuess++;
       //direction = 2;
-    }                          
-    
+    }    
+
+    //Serial.println(millis() - lastEncRun);              
+    numGuesses++;
     lastEncRun = millis();
     rotating=false; // Reset the flag
     
   }
 
-  // convert to int 
-  // what does static mean here?
-  roundedEncCount = static_cast<int>(std::round(encoderCount));
+  // if you base this timer on last encoder run, and someone spams the encoder, will it update during rotation?
+  // maybe just call periodically after each detected rotation 
+  // you want to use a variable you can reset to 0 here rather than in the if statement for debouncing 
+  // but you want to base it on the time that a detent takes on average
+  // this is so sketchy surely there is a better encoder 
 
-  // do I need to now set encoderCount to this? 
-  // wow this made sense in my head but did not work
-  // maybe best to do this conversion later, before actually using the value as index
-  //encoderCount = static_cast<float>(roundedEncCount);
+  // don't want to run instantly on first detent
+  // if you make this too low, you are back to square 1 - multiple guess per detent
+  // the whole idea is to wait a few detents 
+  // how do I handle fast spinning? 
+  // buffer? 
+  // if you get a huge positive of negative, beef up the increment?
+  // will this be millis from first or last guess generated?
+  if ((intDetect == true && ((millis() - lastIntDetect) > 100))) {
 
-  //Serial.println(roundedEncCount);
+    Serial.println("Num Guesses: ");
+    Serial.println(numGuesses);
+    //boolean fastSpin;
+    int spinInc = 1;
+    // try to detect fast spin 
+    // maybe go off sheer number of guesses 
+    if (abs(numGuesses) > 10) {
+      Serial.println("fast spin");
+      //fastSpin = true;
+      spinInc = 5;
+    }
 
-  // apply limits if applicable
 
-  roundedEncCount = max(0, ((roundedEncCount + 1) % (encLimit)));
+    //make assessment based on madness of each detent
+    if (encoderGuess >= 0) {
+      encoderCount = encoderCount + spinInc;
+    }
+    else {
+      encoderCount = encoderCount - spinInc;
+    }
 
-  if (roundedEncCount != lastRoundedEncCount) {
-    Serial.println("Current Selection: ");
-    Serial.println(roundedEncCount);
- 
+    Serial.println("Guess: ");
+    Serial.println(encoderGuess);
+    Serial.println("Current: ");
+    Serial.println(encoderCount);
+    // wait until two occurrences of relevant increment have occurred? Sometimes there is only one... 
+    // can do two, then wait for a specified interval and handle if only one 
+    // convert to int 
+    // what does static mean here?
+    //roundedEncCount = static_cast<int>(std::round(encoderCount));
+    // just round here
+    // Serial.println("Unrounded: ");
+    // Serial.println(encoderCount);
+
+    //roundedEncCount = std::round(encoderCount);
+    //roundedEncCount = std::floor(encoderCount);
+
+  
+
+    // do I need to now set encoderCount to this? 
+    // wow this made sense in my head but did not work
+    // maybe best to do this conversion later, before actually using the value as index
+    //encoderCount = static_cast<float>(roundedEncCount);
+
+    //Serial.println(roundedEncCount);
+
+    // apply limits if applicable
+    //encoderCount = std::round(encoderCount);
+
+    //encoderCount = static_cast<int>(encoderCount);
+
+    if (encLoop) {
+      if (encoderCount < 0) {
+        encoderCount = encLimit - 1;
+      }
+      encoderCount = max(0, ((encoderCount) % (encLimit)));
+    }
+    else {
+      encoderCount = max(0, min(encoderCount, encLimit - 1));
+    }
+
+   
+
+    // Serial.println("Rounded: ");
+    // Serial.println(roundedEncCount);
+
+    // Serial.println("Capped: ");
+    // Serial.println(roundedEncCount);
+
+    // make sure the two don't deviate
+    //encoderCount = roundedEncCount;
+
+    // Serial.println("Last rounded: ");
+    // Serial.println(lastRoundedEncCount);
+
+
+
+
+    // and now convert 
+    //convertedEncCount = static_cast<int>(roundedEncCount);
+
+    // if (roundedEncCount != lastRoundedEncCount) {
+    //   Serial.println("Current Selection: ");
+    //   Serial.println(roundedEncCount);
+    //   Serial.println("Unrounded: ");
+    //   Serial.println(encoderCount);
+  
+    // }
+
+    // put your main code here, to run repeatedly:
+    // set the cursor to column 0, line 1
+    // (note: line 1 is the second row, since counting begins with 0):
+    //lcd.clear();
+    // what if this happens while feedback displayed? 
+    if (resetLCD) {
+      lcd.setCursor(0,1);
+      // get the length of the msg in next version hehe
+      lcd.print("                              ");
+    }
+
+    lcd.setCursor(0, 1);
+    // print the number of seconds since reset:
+    //lcd.print(millis() / 1000);
+    LCDLineTwo = String(encoderCount);
+    lcd.print(encoderCount);
+
+    // when you go to double digits and back to single, the 0 will stay
+
+    // reset encoder guess 
+    encoderGuess = 0;
+    //lastRoundedEncCount = roundedEncCount;
+
+    //encoderCount = roundedEncCount;
+    intDetect = false; 
+    numGuesses = 0;
   }
-
-  // put your main code here, to run repeatedly:
-  // set the cursor to column 0, line 1
-  // (note: line 1 is the second row, since counting begins with 0):
-  //lcd.clear();
-  lcd.setCursor(0, 1);
-  // print the number of seconds since reset:
-  //lcd.print(millis() / 1000);
-  lcd.print(roundedEncCount);
-
-  // when you go to double digits and back to single, the 0 will stay
-
-  lastRoundedEncCount = roundedEncCount;
+ 
 
 }
 
@@ -364,14 +532,17 @@ void click1() {
       break;
     case 1: 
       // select device with chosen ID
-      selectDevice(roundedEncCount);
+      remoteTransfer.param_key = 1;
+      // should param val be used to store the device id in future?
+      remoteTransfer.param_val = 1; 
+      selectDevice(encoderCount);
       break;
     case 2: 
       // select profile with chosen ID
       // profile is tracked at the device
       remoteTransfer.param_key = 2; 
       // reserve this to mean increment pattern by 1
-      remoteTransfer.param_val = roundedEncCount; 
+      remoteTransfer.param_val = encoderCount; 
       Serial.println("Select preset with ID: "); 
       Serial.println(remoteTransfer.param_val);
 
@@ -424,11 +595,17 @@ void doubleclick1() {
 void longPressStart1() {
 
   // use this to increment through the button modes 
+  // welcome mode probably shouldn't be part of this loop 
+  // just a mode to go to lacking another selection 
 
   btnMode = (btnMode + 1) % (numBtnModes); 
 
   Serial.println("Set button to mode: ");
   Serial.println(btnMode);
+
+  // reset encoder count 
+  encoderCount = 0;
+  encoderGuess = 0;
 
   // may need to request info on current value of relevant parameter from device now 
   // or can I continue to handle this entirely on device side?
@@ -441,12 +618,14 @@ void longPressStart1() {
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("Welcome!");
+      LCDLineOne = "Welcome";
       break;
     case 1: 
       // select device with chosen ID
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("Select Device:");
+      LCDLineOne = "Select Device:";
 
       break;
     case 2: 
@@ -455,8 +634,13 @@ void longPressStart1() {
       lcd.clear();
       lcd.setCursor(0,0);
       lcd.print("Select Profile:");
+      LCDLineOne = "Select Profile:";
       break;
   }
+
+  lcd.setCursor(0,1);
+  lcd.print(encoderCount);
+  LCDLineTwo = String(encoderCount);
 
 } // longPressStart3
 
@@ -522,6 +706,8 @@ void rotEncoder()
 {
   rotating=true; // If motion is detected in the rotary encoder,
                  // set the flag to true
+  intDetect = true;
+  lastIntDetect = millis();
 };
 
 

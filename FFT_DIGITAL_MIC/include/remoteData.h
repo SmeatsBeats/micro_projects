@@ -5,6 +5,8 @@
 #ifndef MY_HEADER_H
 #define MY_HEADER_H
 
+char fdbk[100];
+
 typedef struct remoteData {
     // what if you send updates individually this avoids resending static data
     // does the remote ever need to send more than one value per message?
@@ -35,10 +37,10 @@ uint8_t remoteAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
 ///////////// FOR NOW YOU MUST MANUALLY LOAD CORRECT MAC TO EACH DEVICE //////////
 
 // device 0
-char thisDevMac[18] = "0C:B8:15:C1:BF:9C";
+//char thisDevMac[18] = "0C:B8:15:C1:BF:9C";
 // device 1
 //{0x78, 0xE3, 0x6D, 0x19, 0xFB, 0xEC}
-//char thisDevMac[18] = "78:E3:6D:19:FB:EC";
+char thisDevMac[18] = "78:E3:6D:19:FB:EC";
 
 // does this need to be created yet?
 // yes because communication from remote could come at any time
@@ -77,7 +79,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     Serial.println(remoteTransfer.target_dev);
 
     char deviceSelectResponse[18];
-    char fdbk[100];
+    
 
     if (strcmp(thisDevMac, remoteTransfer.target_dev) == 0) {
         //correct device
@@ -86,7 +88,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
         // send feedback - how to store it? ideally in the same target_dev var but this may overcomplicate things 
         // maybe better to send a separate struct with one bit of feedback 
         //fdbk = "Correct device successfully reached!";
-        strcpy(fdbk, "Correct device successfully reached!");
+        strcpy(fdbk, "Device connected");
         //deviceFeedback.deviceResponse = strdup("Correct device successfully reached!");
         //deviceFeedback.deviceResponse = "Correct device successfully reached!";
 
@@ -113,25 +115,29 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
     // need to ensure the length of the response matches the memory allocated
 
-    strcpy(deviceFeedback.deviceResponse, fdbk);
+    // if the remote was just used to select a device, then send this feedback 
 
-    Serial.println("Size of response: ");
-    Serial.println(sizeof(deviceFeedback.deviceResponse));
-    // you may want to track the actual length and store in the struct as well
+    if (remoteTransfer.param_key == 1) {
+        strcpy(deviceFeedback.deviceResponse, fdbk);
 
-    Serial.println("Sending response: ");
-    Serial.println(deviceFeedback.deviceResponse);
+        Serial.println("Size of response: ");
+        Serial.println(sizeof(deviceFeedback.deviceResponse));
+        // you may want to track the actual length and store in the struct as well
 
-    esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceFeedback, sizeof(deviceFeedback));
-   
-    if (result == ESP_OK) {
-        Serial.println("Sent device feedback with success");
+        Serial.println("Sending response: ");
+        Serial.println(deviceFeedback.deviceResponse);
+
+        esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceFeedback, sizeof(deviceFeedback));
+    
+        if (result == ESP_OK) {
+            Serial.println("Sent device feedback with success");
+        }
+        else {
+            Serial.println("Error sending the device feedback");
+        }
+
+        //free(deviceFeedback.deviceResponse);
     }
-    else {
-        Serial.println("Error sending the device feedback");
-    }
-
-    //free(deviceFeedback.deviceResponse);
 }
 
 // callback when data is sent

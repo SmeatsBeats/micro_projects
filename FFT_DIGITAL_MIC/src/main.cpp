@@ -25,9 +25,10 @@
 //#include <LightEffects.h>
 
 
-// profile selection
+// preset selection
 
-int profile_selected = 0;
+int preset_selected = 0;
+int prev_preset = 0;
 
 // ESP_NOW
 
@@ -55,7 +56,7 @@ typedef struct struct_message {
 typedef struct from_remote {
     // what if you send updates individually this avoids resending static data
     // does the remote ever need to send more than one value per message?
-    // could even use this structure for profile
+    // could even use this structure for preset
     // param_key
     // param_val
     int h;
@@ -147,7 +148,9 @@ int digiVal;
 #define COLOR_ORDER GRB                                       // It's GRB for WS2812 and BGR for APA102.
 #define LED_TYPE WS2812                                       // Using APA102, WS2812, WS2801. Don't forget to modify LEDS.addLeds to suit.
 //#define NUM_LEDS 10          
-#define NUM_LEDS 300                                  // Number of LED's.
+// need to change based on device
+#define NUM_LEDS 10                                  // Number of LED's.
+//#define NUM_LEDS 300    
 
 int thisdelay = 20;
 uint8_t max_bright = 85;
@@ -201,7 +204,7 @@ void runRose();
 void runCustomHSV();
 void react();
 void auto_light();
-void updateProfile(int profile_id);
+void runPreset(int preset_id);
 
 
 String UID;
@@ -237,8 +240,17 @@ void setup()
   }
 
   // get MAC address for ESP_NOW
+  // attempt to make this automatic at some point
+  // how will this look? 
+  // each device will have a unique mac address and number of LEDS perhaps more metadata 
+  // on boot up of device connect with remote and establish device number - how can you search without knowing the MAC of the remote?
   WiFi.mode(WIFI_MODE_STA);
+  byte thisDevMacAuto[6]; 
+  WiFi.macAddress(thisDevMacAuto);
   Serial.println(WiFi.macAddress());
+
+  // conversion 
+  //snprintf(thisDevMacAuto, sizeof(thisDevMac), "%02X:%02X:%02X:%02X:%02X:%02X", broadcastAddressSelected[0], broadcastAddressSelected[1], broadcastAddressSelected[2], broadcastAddressSelected[3], broadcastAddressSelected[4], broadcastAddressSelected[5]);
 
   // Convert the MAC address to a string
   //char receivedMacStr[18];
@@ -359,8 +371,8 @@ if (fft_readIndex >= fft_num_readings) {
   // what if you go off of same UID?
 
   // if the button is different from the UID value... hopefully 
-  //if (remoteData.p != profile_selected) {
-    //profile_selected = remoteData.p;
+  //if (remoteData.p != preset_selected) {
+    //preset_selected = remoteData.p;
   //}
 
   //////////////// PROCESS REMOTE DATA //////////////////
@@ -380,7 +392,7 @@ if (fft_readIndex >= fft_num_readings) {
 
     if(remoteTransfer.param_key == 2) {
 
-      //update profile if remote has sent value for it
+      //update preset if remote has sent value for it
 
       Serial.println("Parameter value receieved: ");
       Serial.println(remoteTransfer.param_val);
@@ -388,18 +400,18 @@ if (fft_readIndex >= fft_num_readings) {
       if (remoteTransfer.param_val == 111) {
         // reserved value signal to increment current id by one
         // start with 0 so use one less than actual number 
-        int numProfiles = 5; 
-        profile_selected = (profile_selected + 1) % numProfiles;
+        int numPresets = 5; 
+        preset_selected = (preset_selected + 1) % numPresets;
 
       }
       else {
-        profile_selected = remoteTransfer.param_val;
+        preset_selected = remoteTransfer.param_val;
       }
 
-      Serial.println("Loading profile with id: ");
-      Serial.println(profile_selected);
+      Serial.println("Loading preset with id: ");
+      Serial.println(preset_selected);
 
-      //updateProfile(profile_selected);
+      //runPreset(preset_selected);
 
     }
 
@@ -411,32 +423,65 @@ if (fft_readIndex >= fft_num_readings) {
     //deviceFeedback.deviceResponse = "Incorrect device contacted.";
   }
 
+  // this needs to run every loop for effects to work 
+  // maybe better function name is runPreset
+  runPreset(preset_selected);
 
-  updateProfile(profile_selected);
 
-  // just set profile in this main file
+  if (preset_selected != prev_preset) {
+    
+    Serial.println("preset updated to: ");
+    Serial.println(preset_selected);
+
+    strcpy(fdbk, "preset updated");
+    strcpy(deviceFeedback.deviceResponse, fdbk);
+
+    Serial.println("Size of response: ");
+    Serial.println(sizeof(deviceFeedback.deviceResponse));
+    // you may want to track the actual length and store in the struct as well
+
+    Serial.println("Sending response: ");
+    Serial.println(deviceFeedback.deviceResponse);
+
+    esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceFeedback, sizeof(deviceFeedback));
+   
+    if (result == ESP_OK) {
+        Serial.println("Sent device feedback with success");
+    }
+    else {
+        Serial.println("Error sending the device feedback");
+    }
+
+  }
+
+  prev_preset = preset_selected; 
+ 
+
+  // just set preset in this main file
   // then map params accordingly in separate files
 
 
 
 
 
-  // this will override the profile selected based on UID not if remoteData is sending that back
+  // this will override the preset selected based on UID not if remoteData is sending that back
 
-  // profile_selected = remoteData.p;
+  // preset_selected = remoteData.p;
 
-  // Serial.println("Profile from remote: ");
-  // Serial.println(profile_selected);
+  // Serial.println("preset from remote: ");
+  // Serial.println(preset_selected);
 
 
   // you will need to communicate this selection to the remote whether or not RFID scanned 
+  // but you only want to send feedback if something changes - can compare to previous preset or just send when UID scanned
+  // or remote preset updated
 
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
 
 
   /*
-  // run profile based on selection - this needs to happen whether or not RFID scanned 
-  switch(profile_selected) {
+  // run preset based on selection - this needs to happen whether or not RFID scanned 
+  switch(preset_selected) {
     case 0: 
       runRose();
       break;
@@ -462,11 +507,11 @@ if (fft_readIndex >= fft_num_readings) {
   // Reset loop when idle
   if ( ! mfrc522.PICC_IsNewCardPresent()) {
 
-    // no card scanned so just sending back the same profile
-    // is it really necessary to send data if the profile has not changed?
+    // no card scanned so just sending back the same preset
+    // is it really necessary to send data if the preset has not changed?
     
     //remoteTransfer.param_key = 0;
-    //remoteTransfer.param_val = profile_selected;
+    //remoteTransfer.param_val = preset_selected;
     /*
 
     esp_err_t result1 = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
@@ -507,44 +552,44 @@ if (fft_readIndex >= fft_num_readings) {
   content.toUpperCase();
   UID = content.substring(1);
 
-  // select profile via RFID tag
+  // select preset via RFID tag
   // very annoyed by lack of switch for string
   
   if (UID == "6B 49 B8 B6") {
     // Blue
     // winter
-    profile_selected = 1;
+    preset_selected = 1;
   }
   else if (UID == "2B 72 BE B6") {
     // yellow
     // react
-    profile_selected = 2;
+    preset_selected = 2;
   }
   else if (UID == "0B 83 C7 B6") {
     // White 
     //remote
-    profile_selected = 3;
+    preset_selected = 3;
   }
   else if (UID == "CB 9A BF B6") {
     // green
     // auto_light
-    profile_selected = 4;
+    preset_selected = 4;
   }
   else {
     //pink - unknown
     // not recognized
     // rose
-    profile_selected = 0;
+    preset_selected = 0;
   }
 
   /*
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
-  deviceData.p = profile_selected;
+  deviceData.p = preset_selected;
 
   esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceData, sizeof(deviceData));
    
   if (result == ESP_OK) {
-    Serial.println("Sent updated profile with success");
+    Serial.println("Sent updated preset with success");
   }
   else {
     Serial.println("Error sending the updated data");
@@ -553,14 +598,14 @@ if (fft_readIndex >= fft_num_readings) {
   */
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
   //remoteTransfer.param_key = 0;
-  //remoteTransfer.param_val = profile_selected;
+  //remoteTransfer.param_val = preset_selected;
 
   /*
 
   esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
    
   if (result == ESP_OK) {
-    Serial.println("Sent updated profile with success");
+    Serial.println("Sent updated preset with success");
   }
   else {
     Serial.println("Error sending the updated data");
@@ -673,9 +718,9 @@ void auto_light() {
       }
 }
 
-void updateProfile(int profile_id) {
-  // run profile based on selection - this needs to happen whether or not RFID scanned 
-  switch(profile_id) {
+void runPreset(int preset_id) {
+  // run preset based on selection - this needs to happen whether or not RFID scanned 
+  switch(preset_id) {
     case 0: 
       runRose();
       break;
