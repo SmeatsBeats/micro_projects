@@ -30,6 +30,18 @@
 int preset_selected = 0;
 int prev_preset = 0;
 
+// preset data 
+
+// what about the name of the preset? should this always occupy the first spot of this array or should it go elsewhere
+//char* roseParams[] = {"Rose", "Rate", "Max", "Min"};
+//char* iceParams[] = {"Ice", "Rate", "Interval"};
+
+//int numPresets = 2; 
+
+//char* presetData[numPresets][]
+
+// goal: two dim array that can be indexed PresetData[preset_id][param_id];
+
 // ESP_NOW
 
 // for now just use one address to send data back to remote - in future could be cool to communicate with other nearby boards
@@ -149,8 +161,8 @@ int digiVal;
 #define LED_TYPE WS2812                                       // Using APA102, WS2812, WS2801. Don't forget to modify LEDS.addLeds to suit.
 //#define NUM_LEDS 10          
 // need to change based on device
-#define NUM_LEDS 10                                  // Number of LED's.
-//#define NUM_LEDS 300    
+//#define NUM_LEDS 10                                  // Number of LED's.
+#define NUM_LEDS 300    
 
 int thisdelay = 20;
 uint8_t max_bright = 85;
@@ -429,11 +441,14 @@ if (fft_readIndex >= fft_num_readings) {
 
 
   if (preset_selected != prev_preset) {
+
+    deviceFeedback.param_key = 2; 
+    deviceFeedback.param_val = preset_selected;
     
-    Serial.println("preset updated to: ");
+    Serial.println("Preset updated to: ");
     Serial.println(preset_selected);
 
-    strcpy(fdbk, "preset updated");
+    strcpy(fdbk, "Preset updated");
     strcpy(deviceFeedback.deviceResponse, fdbk);
 
     Serial.println("Size of response: ");

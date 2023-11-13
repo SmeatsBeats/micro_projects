@@ -6,7 +6,7 @@
 #include <Wire.h>
 #include <LiquidCrystal.h>
 
-#define PROFILE_BTN_PIN 19
+#define preset_BTN_PIN 19
 #define encoderPinA 22
 #define encoderPinB 23
 
@@ -35,18 +35,17 @@ static boolean intDetect=false;
 int numGuesses = 0;
 
 
-// perhaps the remote should be informed of the profile selected at the device 
-// if a certain profile has a parameter with a different range of values, the remote could adjust accordingly
+// perhaps the remote should be informed of the preset selected at the device 
+// if a certain preset has a parameter with a different range of values, the remote could adjust accordingly
 // otherwise - could apply a mapping to the remote values on the device end
 // what about the number of editable parameters for different presets? This is a real kicker - you will probably want two way coms
-// about profile for this reason - can send metadata on classes to remote 
+// about preset for this reason - can send metadata on classes to remote 
 // maybe need a new struct for this
 
-// profile & device selection
+// preset & device selection
 
-int new_profile_selected;
-int profile_selected = 0;
-int numProfiles = 5;
+int preset_selected = 0;
+int numpresets = 5;
 int device_selected = 0;
 int numDevs = 2;
 int numBtnModes = 3; 
@@ -61,7 +60,7 @@ OneButton button2(UP_BTN_PIN, true);
 
 */
 
-OneButton button1(PROFILE_BTN_PIN, true);
+OneButton button1(preset_BTN_PIN, true);
 
 // switch the functionality of the button by adjusting this
 int btnMode = 0; 
@@ -96,6 +95,8 @@ typedef struct remoteResponse {
     // this will store any error 
     // or if param is changed successfully can be string containing the parameter and new value
     char deviceResponse[100];
+    int param_key; 
+    int param_val; 
 } remoteResponse;
 
 remoteResponse deviceFeedback;
@@ -115,6 +116,34 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(len);
   Serial.println("Device response: ");
   Serial.println(deviceFeedback.deviceResponse);
+  Serial.print("Param_Key: ");
+  Serial.println(deviceFeedback.param_key);
+  Serial.print("Param_Val: ");
+  Serial.println(deviceFeedback.param_val);
+  Serial.println();
+
+  if (deviceFeedback.param_key == 2) {
+    // preset has been updated 
+    preset_selected = deviceFeedback.param_val;
+    // if you are in welcome screen you need to update line 2 of display
+    if (btnMode == 0) {
+      lcd.setCursor(0,1);
+      lcd.print("     ");
+      lcd.setCursor(0,1);
+      LCDLineTwo = "Preset: " + String(preset_selected);
+      lcd.print(LCDLineTwo);
+    }
+
+
+  }
+  else if (deviceFeedback.param_key == 1) {
+    // connection established with device 
+    lcd.setCursor(0,1);
+    lcd.print("     ");
+    lcd.setCursor(0,1);
+    LCDLineTwo = "Preset: " + String(device_selected);
+    lcd.print(LCDLineTwo);
+  }
 
   // print feedback from device to display
   lcd.setCursor(0,1);
@@ -268,24 +297,24 @@ void loop() {
 
   // if(remoteTransfer.param_key == 0) {
 
-  //   //update profile if remote has sent value for it
+  //   //update preset if remote has sent value for it
 
-  //   profile_selected = remoteTransfer.param_val;
+  //   preset_selected = remoteTransfer.param_val;
 
-  //   //Serial.println("Profile from remote: ");
-  //   //Serial.println(profile_selected);
+  //   //Serial.println("preset from remote: ");
+  //   //Serial.println(preset_selected);
 
   // }
 
   
 
-  // if there is no button click you just want to send the same profile that is currently on the device back to it
-  // maybe I should just make a separate struct for the profile data and only send it on the click
+  // if there is no button click you just want to send the same preset that is currently on the device back to it
+  // maybe I should just make a separate struct for the preset data and only send it on the click
   // you already have this struct containing only p... 
   // could be complicated to handle receiving two different structs... 
 
-  // need to set selected profile based on what the device sends back 
-  //profile_selected = deviceData.p;
+  // need to set selected preset based on what the device sends back 
+  //preset_selected = deviceData.p;
 
   // if you only send data on click, none of this data gets sent
   // on the other hand, do you really need to send data every loop? 
@@ -310,7 +339,7 @@ void loop() {
   int encLoop = 0;
 
   // in some instances you will want the device to update as you scroll e.g. adjust hue 
-  // in others, nothing should happen until a button click confirms e.g. update profile 
+  // in others, nothing should happen until a button click confirms e.g. update preset 
 
 
   switch(btnMode) {
@@ -321,13 +350,13 @@ void loop() {
     case 1:
       // device mode
       encInc = 0.5; 
-      // set limit to equal number of devices/profiles etc 
+      // set limit to equal number of devices/presets etc 
       // not index of highest one 
       encLimit = 2;
       encLoop = 1;
       break;
     case 2: 
-      // profile mode
+      // preset mode
       encInc = 0.5;
       encLimit = 5;
       encLoop = 1;
@@ -535,11 +564,12 @@ void click1() {
       remoteTransfer.param_key = 1;
       // should param val be used to store the device id in future?
       remoteTransfer.param_val = 1; 
-      selectDevice(encoderCount);
+      device_selected = encoderCount;
+      selectDevice(device_selected);
       break;
     case 2: 
-      // select profile with chosen ID
-      // profile is tracked at the device
+      // select preset with chosen ID
+      // preset is tracked at the device
       remoteTransfer.param_key = 2; 
       // reserve this to mean increment pattern by 1
       remoteTransfer.param_val = encoderCount; 
@@ -558,7 +588,7 @@ void doubleclick1() {
   Serial.println("Button 3 doubleclick.");
 
   // use double click for mode specific increment function 
-  // e.g. skip to next profile in profile mode 
+  // e.g. skip to next preset in preset mode 
   // skip to next device in device mode
 
   switch(btnMode) {
@@ -566,6 +596,12 @@ void doubleclick1() {
       // default mode -- do nothing
       break; 
     case 1:
+
+      // this also seems to copy the preset from the previous connected device
+      // and causes lcd issue like this: 
+      // Select Device: 
+      // Preset: 3
+
       // it is safe to handle device selection here, because the device cannot be selected from the absorber
       // what if it is selected from webapp?
       // the remote or app are still the final element that need to know which device is selected
@@ -573,11 +609,13 @@ void doubleclick1() {
       device_selected = (device_selected + 1) % (numDevs);
       
       selectDevice(device_selected);
+      remoteTransfer.param_key = 1;
+      remoteTransfer.param_val = 1; 
       // after selection exit to default mode
       //btnMode = 0; 
       break;
     case 2: 
-      // increment profile
+      // increment preset
       // handle the incrementing on the device side 
       // just send code here that tells it to increment by one 
       remoteTransfer.param_key = 2; 
@@ -617,30 +655,38 @@ void longPressStart1() {
       // do nothing or just display some info / graphic
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("Welcome!");
-      LCDLineOne = "Welcome";
+      // show current device
+      LCDLineOne = "Device: " + String(device_selected);
+      lcd.print(LCDLineOne);
+      lcd.setCursor(0,1);
+      LCDLineTwo = "Preset: " + String(preset_selected);
+      lcd.print(LCDLineTwo);
       break;
     case 1: 
       // select device with chosen ID
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("Select Device:");
       LCDLineOne = "Select Device:";
+      lcd.print(LCDLineOne);
+      lcd.setCursor(0,1);
+      LCDLineTwo = String(encoderCount);
+      lcd.print(LCDLineTwo);
 
       break;
     case 2: 
-      // select profile with chosen ID
-      // profile is tracked at the device
+      // select preset with chosen ID
+      // preset is tracked at the device
       lcd.clear();
       lcd.setCursor(0,0);
-      lcd.print("Select Profile:");
-      LCDLineOne = "Select Profile:";
+      LCDLineOne = "Select Preset:";
+      lcd.print(LCDLineOne);
+      lcd.setCursor(0,1);
+      LCDLineTwo = String(encoderCount);
+      lcd.print(LCDLineTwo);
       break;
   }
 
-  lcd.setCursor(0,1);
-  lcd.print(encoderCount);
-  LCDLineTwo = String(encoderCount);
+
 
 } // longPressStart3
 
@@ -669,6 +715,9 @@ void confirmConnection(uint8_t* broadcastAddressSelected) {
   Serial.println(remoteTransfer.target_dev);
 
   // request confirmation from device
+
+  // this will send over whatever param_key and val are set to currently
+  // be sure to define them appropriately before sending
 
   esp_err_t result = esp_now_send(broadcastAddressSelected, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
   

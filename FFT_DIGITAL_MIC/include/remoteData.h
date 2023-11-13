@@ -29,6 +29,8 @@ typedef struct remoteResponse {
     // this will store any error 
     // or if param is changed successfully can be string containing the parameter and new value
     char deviceResponse[100];
+    int param_key; 
+    int param_val; 
 } remoteResponse;
 
 // this is the address to send profile data back to remote
@@ -37,10 +39,10 @@ uint8_t remoteAddress[] = {0x0C, 0xB8, 0x15, 0xC0, 0xE9, 0x5C};
 ///////////// FOR NOW YOU MUST MANUALLY LOAD CORRECT MAC TO EACH DEVICE //////////
 
 // device 0
-//char thisDevMac[18] = "0C:B8:15:C1:BF:9C";
+char thisDevMac[18] = "0C:B8:15:C1:BF:9C";
 // device 1
 //{0x78, 0xE3, 0x6D, 0x19, 0xFB, 0xEC}
-char thisDevMac[18] = "78:E3:6D:19:FB:EC";
+//char thisDevMac[18] = "78:E3:6D:19:FB:EC";
 
 // does this need to be created yet?
 // yes because communication from remote could come at any time
@@ -118,6 +120,7 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
     // if the remote was just used to select a device, then send this feedback 
 
     if (remoteTransfer.param_key == 1) {
+
         strcpy(deviceFeedback.deviceResponse, fdbk);
 
         Serial.println("Size of response: ");
@@ -126,6 +129,12 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
         Serial.println("Sending response: ");
         Serial.println(deviceFeedback.deviceResponse);
+
+        
+        // echo 1 and 1 for just connecting
+
+        deviceFeedback.param_key = 1; 
+        deviceFeedback.param_val = 1;
 
         esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceFeedback, sizeof(deviceFeedback));
     
