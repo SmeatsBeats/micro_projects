@@ -11,56 +11,29 @@
 // perhaps each class could include sensible default knob mappings... 
 
 // can I do this... ?
-uint8_t customH = 100; 
-uint8_t customS = 100; 
-uint8_t customV = 100;
 
 
 class CustomHSV {
     public:
         // attributes 
         // set defaults but only if not defined
-        // otherwise each time this is called, you will reset these
-        // uint8_t customH = 100; 
-        // uint8_t customS = 100; 
-        // uint8_t customV = 100;
       
         CustomHSV() {
             // constructor
         };
 
-        void runPattern(CRGB* leds, int NUM_LEDS, remoteData remoteTransfer);
+        void runPattern(CRGB* leds, int NUM_LEDS, uint8_t hue, uint8_t sat, uint8_t val);
 
     private:
 };
 
-void CustomHSV::runPattern(CRGB* leds, int NUM_LEDS, remoteData remoteTransfer) {
+void CustomHSV::runPattern(CRGB* leds, int NUM_LEDS, uint8_t hue, uint8_t sat, uint8_t val) {
 
     // set blank slate for default
-    fill_solid(leds, NUM_LEDS, CRGB::White);
-
-    // now process data from remoteTransfer 
-
-    switch(remoteTransfer.param_key) {
-
-        case 1:
-        //update hue
-        customH = remoteTransfer.param_val;
-        break;
-        case 2:
-        //update saturation
-        customS = remoteTransfer.param_val;
-        break;
-        case 3: 
-        //update value
-        customV = remoteTransfer.param_val;
-        break;
-  }
-
-
+    //fill_solid(leds, NUM_LEDS, CRGB::White);
 
     for (int i = 0; i < NUM_LEDS; i++) {
-      leds[i] = CHSV(customH, customS, customV);
+      leds[i] = CHSV(hue, sat, val);
     }
 
     // do I need button tick or FastLED.show?

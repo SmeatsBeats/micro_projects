@@ -30,17 +30,52 @@
 int preset_selected = 0;
 int prev_preset = 0;
 
+int param_selected; 
+int remote_selection;
+int prev_param;
+
+char selectionFdbk[100]; 
+boolean send_fdbk = false;
+
+
 // preset data 
+// probably makes more sense to make this database driven
+// https://randomnerdtutorials.com/esp32-esp8266-mysql-database-php/
+// but would this mean that the device needs internet to function? 
+// ultimately, the data will still need to be stored on the device somehow
+
+// I am also going to need to store info about each parameter for example, what is the max or min possible value?
 
 // what about the name of the preset? should this always occupy the first spot of this array or should it go elsewhere
-//char* roseParams[] = {"Rose", "Rate", "Max", "Min"};
-//char* iceParams[] = {"Ice", "Rate", "Interval"};
+const char* roseParams[] = {"Rose", "Rate", "Max", "Min"};
+uint8_t roseDefaults[] = {0, 25, 50, 10};
+const char* iceParams[] = {"Ice", "Rate", "Interval"};
+uint8_t iceDefaults[] = {0, 15, 1};
+const char* reactParams[] = {"React", "Rate", "Max", "Min"};
+uint8_t reactDefaults[] = {0, 0, 0, 0};
+const char* HSVParams[] = {"HSV", "Hue", "Saturation", "Value"};
+uint8_t HSVDefaults[] = {0, 100, 200, 100};
+const char* lightParams[] = {"Light", "Rate", "Max", "Min"};
+uint8_t lightDefaults[] = {0, 0, 0, 0};
+//const char* iceParams[] = {"Ice", "Rate", "Interval"};
 
-//int numPresets = 2; 
+const int numPresets = 2; 
+const int maxParams = 4;
 
-//char* presetData[numPresets][]
+const char** presetData[] = {roseParams, iceParams, reactParams, HSVParams, lightParams};
+
+uint8_t* defaultData[] = {roseDefaults, iceDefaults, reactDefaults, HSVDefaults, lightDefaults};
+
 
 // goal: two dim array that can be indexed PresetData[preset_id][param_id];
+// doing this manually for testing but should be put into a loop
+
+// param data - getting out of my depth here 
+// FX should probably be adjusted separately ugh 
+// or maybe not when they are part of the preset 
+uint8_t roseBreatheInterval = 15;
+
+
 
 // ESP_NOW
 
@@ -233,6 +268,11 @@ void setup()
   Serial.begin(115200);   // Initiate a serial communication
   while(!Serial);
 
+  // presetData test
+  // this accesses the name of the 0th preset 
+  Serial.println("Default data: ");
+  Serial.println(defaultData[0][3]);
+
   // LED test
   LEDS.addLeds<LED_TYPE, LED_DT, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(max_bright);
@@ -344,6 +384,8 @@ void loop()
   // calculate the average:
   average = total / numReadings;
 
+  //// this should go in separate file and be called as function only for reactive presets
+
   // use same averaging approach for fft bins 
   // this probably belongs in a separate file 
   // also, the FFT is only necessary for reactive patterns - running it for 
@@ -389,6 +431,8 @@ if (fft_readIndex >= fft_num_readings) {
 
   //////////////// PROCESS REMOTE DATA //////////////////
 
+  
+
   // first thing to do is confirm this is the intended device for the communication 
   // compare MAC of this device to selected device
   // maybe this really belongs in the callback onDataRecv
@@ -401,8 +445,9 @@ if (fft_readIndex >= fft_num_readings) {
     //deviceFeedback.deviceResponse = "Correct device successfully reached!";
 
     Serial.println("proceed to process data");
+    
 
-    if(remoteTransfer.param_key == 2) {
+    if(remoteTransfer.param_key == 2 || remoteTransfer.param_key == 3) {
 
       //update preset if remote has sent value for it
 
@@ -412,20 +457,108 @@ if (fft_readIndex >= fft_num_readings) {
       if (remoteTransfer.param_val == 111) {
         // reserved value signal to increment current id by one
         // start with 0 so use one less than actual number 
+        // will need to edit this for numParams
         int numPresets = 5; 
-        preset_selected = (preset_selected + 1) % numPresets;
+        
+        remote_selection = (preset_selected + 1) % numPresets;
+        //preset_selected = (preset_selected + 1) % numPresets;
 
       }
       else {
-        preset_selected = remoteTransfer.param_val;
+        //preset_selected = remoteTransfer.param_val;
+        remote_selection = remoteTransfer.param_val;
       }
 
-      Serial.println("Loading preset with id: ");
-      Serial.println(preset_selected);
+ 
 
       //runPreset(preset_selected);
+      if (remoteTransfer.param_key == 3) {
+        // only reason to wrap this is to prevent sending load message when currently selected preset is reselected 
+        // a different message should be sent eg already loaded 
+        // change in param selection will only come from remote so you don't need to check for change from device 
+        // go ahead and send response
+        // this should ideally go into a function 
+        param_selected = remote_selection;
+        send_fdbk = true;
 
+        if (param_selected != prev_param) {
+          
+          deviceFeedback.param_key = 3; 
+          deviceFeedback.param_val = remote_selection;
+          
+          Serial.println("Param updated to: ");
+          Serial.println(remote_selection);
+
+          // better to just send the param name so it can be grabbed as is back at the remote
+          // tag loading onto the front there 
+
+          //sprintf(selectionFdbk, "Loading: %s", presetData[preset_selected][remote_selection]);
+          strcpy(selectionFdbk, presetData[preset_selected][remote_selection]);
+
+        }
+        else {
+          strcpy(selectionFdbk, "Already loaded.");
+        }
+      }
+      
+      if (remoteTransfer.param_key == 2) {
+
+        send_fdbk = true;
+        // use the value from remote to select preset
+        // this needs to run every loop for effects to work 
+        // maybe better function name is runPreset
+
+        // this should still register for rfid
+
+        preset_selected = remote_selection;
+
+          // more redundant testing code - put this in here for when preset data is received
+        if (preset_selected != prev_preset) {      
+
+          // also need to reset the param because you have changed presets 
+          param_selected = 0;
+          // the param name won't update with this method... 
+
+          deviceFeedback.param_key = 2; 
+          deviceFeedback.param_val = preset_selected;
+          
+          Serial.println("Preset updated to: ");
+          Serial.println(preset_selected);
+
+          //sprintf(selectionFdbk, "Loading: %s", presetData[preset_selected][0]);
+          strcpy(selectionFdbk, presetData[preset_selected][0]);
+
+        } 
+        else {
+          // how can I send a message to say "already loaded!"
+          // wihtout sending it every loop?
+          // maybe should be setting param key and other vars to some null val after each run
+          strcpy(selectionFdbk, "Already loaded.");
+          // could handle this on the remote side... 
+        }
+      }
     }
+    else if(remoteTransfer.param_key == 4) {
+      // panic stations 
+      // time to update a parameter 
+      String selected_param_name = presetData[preset_selected][param_selected];
+      Serial.println("Set " + selected_param_name + " to:");
+      Serial.println(remoteTransfer.param_val);
+      //roseBreatheInterval = remoteTransfer.param_val;
+      defaultData[preset_selected][param_selected] = remoteTransfer.param_val;
+      // cool 
+      // now how do I actually get it to change? 
+      // this is getting way too complicated not to be db driven... 
+      // one idea - more arrays like the presetData one 
+      // store default parameter vals in them 
+      // call functions like rose(roseDefault[1], roseDefault[2]...)
+      // for now I will just test with global var
+      // ok so maybe preset data becomes associative array with preset name and default value 
+      // then this will override the default 
+      // or just make a parallel array structure that holds the default instead of the names... 
+    }
+
+
 
     // only run this when data is received from the remote
     correctDevice = 0;
@@ -435,12 +568,16 @@ if (fft_readIndex >= fft_num_readings) {
     //deviceFeedback.deviceResponse = "Incorrect device contacted.";
   }
 
-  // this needs to run every loop for effects to work 
-  // maybe better function name is runPreset
-  runPreset(preset_selected);
+  // Serial.println("Loading preset with id: ");
+  // Serial.println(preset_selected);
 
+   runPreset(preset_selected);
 
   if (preset_selected != prev_preset) {
+    // this could result from change from remote 
+    // or change from rfid scan 
+    send_fdbk = true;
+    
 
     deviceFeedback.param_key = 2; 
     deviceFeedback.param_val = preset_selected;
@@ -448,7 +585,27 @@ if (fft_readIndex >= fft_num_readings) {
     Serial.println("Preset updated to: ");
     Serial.println(preset_selected);
 
-    strcpy(fdbk, "Preset updated");
+    strcpy(selectionFdbk, presetData[preset_selected][0]);
+    //sprintf(selectionFdbk, "Loading: %s", presetData[preset_selected][0]);
+
+  } 
+  else {
+    // how can I send a message to say "already loaded!"
+    // wihtout sending it every loop?
+    // maybe should be setting param key and other vars to some null val after each run
+    // this gets sent as long as the card is present 
+    // can check when card no longer present and reset 
+    // could handle this on the remote side... 
+
+    // think about how it will be used - the panels will be stationary in front of the reader 
+    // probably best to do nothing! 
+  }
+
+  // send feedback if necessary 
+
+  if (send_fdbk) {
+
+    strcpy(fdbk, selectionFdbk);
     strcpy(deviceFeedback.deviceResponse, fdbk);
 
     Serial.println("Size of response: ");
@@ -459,25 +616,37 @@ if (fft_readIndex >= fft_num_readings) {
     Serial.println(deviceFeedback.deviceResponse);
 
     esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceFeedback, sizeof(deviceFeedback));
-   
+
     if (result == ESP_OK) {
-        Serial.println("Sent device feedback with success");
+      Serial.println("Sent device feedback with success");
     }
     else {
-        Serial.println("Error sending the device feedback");
+      Serial.println("Error sending the device feedback");
     }
+
+    send_fdbk = false;
+
+
+    // this is to test why already loaded stays so long for the rfid 
+    // it is because multiple consecutive readings cause the message to be sent many times
+    // how can I stop the same message from being spammed out? 
+    // check if the message is the same and if a certain time frame has passed 
+    // maybe another flag?
+    //delay(5000);
+
+    // 0 out the received data 
+    // this is necessary or the loop keeps running 
+    remoteTransfer.param_key = 0;
 
   }
 
   prev_preset = preset_selected; 
- 
+  prev_param = param_selected;
 
   // just set preset in this main file
   // then map params accordingly in separate files
 
-
-
-
+  
 
   // this will override the preset selected based on UID not if remoteData is sending that back
 
@@ -494,56 +663,17 @@ if (fft_readIndex >= fft_num_readings) {
   // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
 
 
-  /*
-  // run preset based on selection - this needs to happen whether or not RFID scanned 
-  switch(preset_selected) {
-    case 0: 
-      runRose();
-      break;
-    case 1:
-      //winter();
-      runIce();
-      break;
-    case 2:
-      react();
-      break;
-    case 3: 
-      remote();
-      break;
-    case 4:
-      auto_light();
-      break;
-  }
-  
-  FastLED.show();
-
-  */
-
   // Reset loop when idle
   if ( ! mfrc522.PICC_IsNewCardPresent()) {
 
     // no card scanned so just sending back the same preset
     // is it really necessary to send data if the preset has not changed?
-    
-    //remoteTransfer.param_key = 0;
-    //remoteTransfer.param_val = preset_selected;
-    /*
-
-    esp_err_t result1 = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
-    
-    if (result1 == ESP_OK) {
-      //Serial.println("Sent the idle data with success");
-    }
-    else {
-      Serial.println("Error sending the same data");
-    }
-    */
-
+    //newCard = false;
+    // ok so even as you hold a card up in front, this gets called
+    //Serial.println("reset alreadySent");
+    //alreadySent = 0;
     return;
   }
-
-  // if a new card is present, the loop proceeds 
-
     
  
   // Verify that the data has been read - if not, reset
@@ -597,45 +727,8 @@ if (fft_readIndex >= fft_num_readings) {
     preset_selected = 0;
   }
 
-  /*
-  // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
-  deviceData.p = preset_selected;
-
-  esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &deviceData, sizeof(deviceData));
-   
-  if (result == ESP_OK) {
-    Serial.println("Sent updated preset with success");
-  }
-  else {
-    Serial.println("Error sending the updated data");
-  }
-  //delay(800);
-  */
-  // feedback to remoteData -- you need to actually send this back or the other device will keep sending over what it thinks p is
-  //remoteTransfer.param_key = 0;
-  //remoteTransfer.param_val = preset_selected;
-
-  /*
-
-  esp_err_t result = esp_now_send(remoteAddress, (uint8_t *) &remoteTransfer, sizeof(remoteTransfer));
-   
-  if (result == ESP_OK) {
-    Serial.println("Sent updated preset with success");
-  }
-  else {
-    Serial.println("Error sending the updated data");
-  }
-  */
-
 } 
-/*
-void breathe(uint8_t breathe_interval, uint8_t breathe_min_bright, uint8_t breathe_max_bright) {
 
-  uint8_t sinBright = beatsin8(breathe_interval, breathe_min_bright, breathe_max_bright, 0, 0);
-  FastLED.setBrightness(sinBright);
-
-} // breathe
-*/
 
 void chase(uint8_t chase_interval) {
 
@@ -680,12 +773,18 @@ void runRose() {
   Rose rose;
   // use default params if not provided 
   // otherwise use provided params
-  rose.runPattern(leds, NUM_LEDS, max_bright, 30, 10);
+  // do I need to call from parent array?
+  // try both
+  //rose.runPattern(leds, NUM_LEDS, 25, 50, 10);
+  //rose.runPattern(leds, NUM_LEDS, roseDefaults[1], roseDefaults[2], roseDefaults[3]);
+  rose.runPattern(leds, NUM_LEDS, defaultData[0][1], defaultData[0][2], defaultData[0][3]);
 }
 
 void runCustomHSV() {
   CustomHSV customHSV;
-  customHSV.runPattern(leds, NUM_LEDS, remoteTransfer);
+  //customHSV.runPattern(leds, NUM_LEDS, remoteTransfer);
+  customHSV.runPattern(leds, NUM_LEDS, defaultData[3][1], defaultData[3][2], defaultData[3][3]);
+  //customHSV.runPattern(leds, NUM_LEDS, 100, 200, 100);
 }
 
 

@@ -25,6 +25,7 @@ String LCDLineTwo;
 volatile unsigned long lastEncRun = 0;
 volatile unsigned long lastIntDetect = 0;
 int encoderCount = 0;
+int prevEncoderCount = 0;
 // could also do this rounding within relevant functions
 int roundedEncCount;
 int encoderGuess = 0;
@@ -42,13 +43,19 @@ int numGuesses = 0;
 // about preset for this reason - can send metadata on classes to remote 
 // maybe need a new struct for this
 
-// preset & device selection
+// preset, param & device selection
 
 int preset_selected = 0;
+String preset_name;
 int numpresets = 5;
 int device_selected = 0;
 int numDevs = 2;
-int numBtnModes = 3; 
+int numBtnModes = 5; 
+
+int param_selected = 0;
+// could set default here but probably best to do some automated setup to determine which preset is loaded on startup
+String param_name;
+
 
 // button setup
 
@@ -122,10 +129,19 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   Serial.println(deviceFeedback.param_val);
   Serial.println();
 
+  // this if statement is repeating the same thing... could use function or better logic
+
   if (deviceFeedback.param_key == 2) {
     // preset has been updated 
     preset_selected = deviceFeedback.param_val;
+    // only set name if not already loaded 
+    // this is a sketchy method - better to send code back from remote and process here
+    if (String(deviceFeedback.deviceResponse) != "Already loaded.") {
+      preset_name = deviceFeedback.deviceResponse;
+    }
+    
     // if you are in welcome screen you need to update line 2 of display
+    // this can happen due to rfid scan 
     if (btnMode == 0) {
       lcd.setCursor(0,1);
       lcd.print("     ");
@@ -138,23 +154,46 @@ void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
   }
   else if (deviceFeedback.param_key == 1) {
     // connection established with device 
-    lcd.setCursor(0,1);
-    lcd.print("     ");
-    lcd.setCursor(0,1);
-    LCDLineTwo = "Preset: " + String(device_selected);
-    lcd.print(LCDLineTwo);
+   
+    // lcd.setCursor(0,1);
+    // lcd.print("     ");
+    // lcd.setCursor(0,1);
+    // LCDLineTwo = "Preset: " + String(device_selected);
+    // lcd.print(LCDLineTwo);
   }
+  else if (deviceFeedback.param_key == 3) {
+
+    param_selected = deviceFeedback.param_val;
+    if (String(deviceFeedback.deviceResponse) != "Already loaded.") {
+      param_name = deviceFeedback.deviceResponse;
+    }
+
+
+  //   int param_selected = deviceFeedback.param_val;
+  //   lcd.setCursor(0,1);
+  //   lcd.print("     ");
+  //   lcd.setCursor(0,1);
+  //   LCDLineTwo = "Param: " + String(param_selected);
+  //   lcd.print(LCDLineTwo);
+   }
 
   // print feedback from device to display
   lcd.setCursor(0,1);
   lcd.print("         ");
   lcd.setCursor(0,1);
-  lcd.print(deviceFeedback.deviceResponse);
+  String preMsg;
+  if ((deviceFeedback.param_key == 2 || deviceFeedback.param_key == 3) && String(deviceFeedback.deviceResponse) != "Already loaded.") {
+    preMsg = "Loading: ";
+  }
+  else{
+    preMsg = "";
+  }
+  lcd.print(preMsg + String(deviceFeedback.deviceResponse));
 
   resetLCD = true;
   // wait
 
-  delay(3000);
+  delay(2000);
 
   //lcd.clear();
   //lcd.setCursor(0,0);
@@ -221,7 +260,9 @@ void setup() {
   //set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
   //Print a message to the LCD.
-  lcd.print("Welcome!");
+  lcd.print("Custom");
+  lcd.setCursor(0,1);
+  lcd.print("Acoustical");
 
 
   // get MAC address for ESP_NOW
@@ -287,6 +328,10 @@ void setup() {
   //pinMode (encoderPinB,INPUT);
   attachInterrupt(digitalPinToInterrupt(encoderPinA), rotEncoder, CHANGE);
 
+  // try to get info from device: 
+  // current preset and selected parameter or a viable default 
+  // maybe use a unique param key for this
+
 }
 
 void loop() {
@@ -333,7 +378,7 @@ void loop() {
 
   // encLimit when to loop back to start of possible selections
   
-  int encLimit = 60; 
+  int encLimit = 256; 
   // what if there is a hard ceiling? as in you don't want to loop back but stop at max value
   // set this to 1 
   int encLoop = 0;
@@ -363,7 +408,18 @@ void loop() {
       break;
     case 3: 
       // parameter mode
+      // need to set encLimit based on number of available parameters
+      // should I just give the remote direct access to this info? 
+      // or should it be accessible directly to device and sent to remote on request? 
+      // or do you even need to know? Could just increment until you hit a null then not print that
+      // currently I am showing preset and param ids on the screen 
+      // probably better to show the names 
+      // should I not just make a header file that has a matrix of devices and presets 
+      // and have this as accessible to the remote and devices? 
       break; 
+    case 4:
+      encLoop = 1;
+      break;
   }
 
   while (rotating) {
@@ -425,14 +481,21 @@ void loop() {
     Serial.println(numGuesses);
     //boolean fastSpin;
     int spinInc = 1;
+    // this is very sketchy approach
+    if (String(param_name) == "Hue" && btnMode == 4){
+      spinInc = 12;
+    }
+    
     // try to detect fast spin 
     // maybe go off sheer number of guesses 
     if (abs(numGuesses) > 10) {
       Serial.println("fast spin");
       //fastSpin = true;
       spinInc = 5;
+      if (String(param_name) == "Hue" && btnMode == 4){
+        spinInc = 30;
+      }
     }
-
 
     //make assessment based on madness of each detent
     if (encoderGuess >= 0) {
@@ -446,31 +509,8 @@ void loop() {
     Serial.println(encoderGuess);
     Serial.println("Current: ");
     Serial.println(encoderCount);
-    // wait until two occurrences of relevant increment have occurred? Sometimes there is only one... 
-    // can do two, then wait for a specified interval and handle if only one 
-    // convert to int 
-    // what does static mean here?
-    //roundedEncCount = static_cast<int>(std::round(encoderCount));
-    // just round here
-    // Serial.println("Unrounded: ");
-    // Serial.println(encoderCount);
 
-    //roundedEncCount = std::round(encoderCount);
-    //roundedEncCount = std::floor(encoderCount);
-
-  
-
-    // do I need to now set encoderCount to this? 
-    // wow this made sense in my head but did not work
-    // maybe best to do this conversion later, before actually using the value as index
-    //encoderCount = static_cast<float>(roundedEncCount);
-
-    //Serial.println(roundedEncCount);
-
-    // apply limits if applicable
-    //encoderCount = std::round(encoderCount);
-
-    //encoderCount = static_cast<int>(encoderCount);
+    // if you increment by different values the modulo logic falls apart
 
     if (encLoop) {
       if (encoderCount < 0) {
@@ -482,39 +522,6 @@ void loop() {
       encoderCount = max(0, min(encoderCount, encLimit - 1));
     }
 
-   
-
-    // Serial.println("Rounded: ");
-    // Serial.println(roundedEncCount);
-
-    // Serial.println("Capped: ");
-    // Serial.println(roundedEncCount);
-
-    // make sure the two don't deviate
-    //encoderCount = roundedEncCount;
-
-    // Serial.println("Last rounded: ");
-    // Serial.println(lastRoundedEncCount);
-
-
-
-
-    // and now convert 
-    //convertedEncCount = static_cast<int>(roundedEncCount);
-
-    // if (roundedEncCount != lastRoundedEncCount) {
-    //   Serial.println("Current Selection: ");
-    //   Serial.println(roundedEncCount);
-    //   Serial.println("Unrounded: ");
-    //   Serial.println(encoderCount);
-  
-    // }
-
-    // put your main code here, to run repeatedly:
-    // set the cursor to column 0, line 1
-    // (note: line 1 is the second row, since counting begins with 0):
-    //lcd.clear();
-    // what if this happens while feedback displayed? 
     if (resetLCD) {
       lcd.setCursor(0,1);
       // get the length of the msg in next version hehe
@@ -537,6 +544,26 @@ void loop() {
     intDetect = false; 
     numGuesses = 0;
   }
+
+  // in param edit mode, you must send data continously 
+
+  if (btnMode == 4 && (prevEncoderCount != encoderCount)) {
+    // send data continuously to the device
+    remoteTransfer.param_key = 4; 
+    // does the device know which param I want to edit
+    // or do I need to add to the struct
+    remoteTransfer.param_val = encoderCount; 
+    // Serial.println("Select preset with ID: "); 
+    // Serial.println(remoteTransfer.param_val);
+
+    // confirm the connection and pass the data
+    // this may be too slow we shall see
+    // ok to skip confirmation if so 
+    confirmConnection(broadcastAddressSelected);
+
+  }
+
+  prevEncoderCount = encoderCount; 
  
 
 }
@@ -571,13 +598,44 @@ void click1() {
       // select preset with chosen ID
       // preset is tracked at the device
       remoteTransfer.param_key = 2; 
-      // reserve this to mean increment pattern by 1
+
       remoteTransfer.param_val = encoderCount; 
       Serial.println("Select preset with ID: "); 
       Serial.println(remoteTransfer.param_val);
 
       // confirm the connection and pass the data
       confirmConnection(broadcastAddressSelected);
+
+      // reset param selection
+      // device doesn't know you're doing this 
+      // can you ensure one runs after the other without needing to use callbacks? 
+      // you can also add code to device end to set param to 0 when preset changes
+      param_selected = 0; 
+      // though I don't think the param name will update with this method 
+      // TODO
+      // for now just null
+      param_name = "";
+      // but without call to data recvd function will this ever happen?
+
+      break;
+    case 3: 
+      // param select mode
+      // select which param to edit 
+      remoteTransfer.param_key = 3; 
+     
+      remoteTransfer.param_val = encoderCount; 
+      Serial.println("Select param with ID: "); 
+      Serial.println(remoteTransfer.param_val);
+      // confirm the connection and pass the data
+      confirmConnection(broadcastAddressSelected);
+
+      // you could automatically go to param edit lcd screen here
+
+      break;
+    case 4: 
+      // param edit mode 
+      // in this mode, the parameter should update continuously with the remote 
+      // clicking disabled for now... 
       break;
   }
  
@@ -624,6 +682,16 @@ void doubleclick1() {
       // confirm the connection and pass the data
       confirmConnection(broadcastAddressSelected);
       break;
+    case 3: 
+      // increment preset
+      // handle the incrementing on the device side 
+      // just send code here that tells it to increment by one 
+      remoteTransfer.param_key = 3; 
+      // reserve this to mean increment pattern by 1
+      remoteTransfer.param_val = 111; 
+      // confirm the connection and pass the data
+      confirmConnection(broadcastAddressSelected);
+      break;
   }
 
 
@@ -658,8 +726,10 @@ void longPressStart1() {
       // show current device
       LCDLineOne = "Device: " + String(device_selected);
       lcd.print(LCDLineOne);
+      // in mode 0 show current device and profile selection
       lcd.setCursor(0,1);
-      LCDLineTwo = "Preset: " + String(preset_selected);
+      //LCDLineTwo = "Preset: " + String(preset_selected);
+      LCDLineTwo = "Preset: " + preset_name;
       lcd.print(LCDLineTwo);
       break;
     case 1: 
@@ -684,7 +754,46 @@ void longPressStart1() {
       LCDLineTwo = String(encoderCount);
       lcd.print(LCDLineTwo);
       break;
+    case 3:
+      // parameter mode 
+      // choose which parameter to manipulate
+      lcd.clear();
+      lcd.setCursor(0,0);
+      LCDLineOne = "Select Param:";
+      lcd.print(LCDLineOne);
+
+      break;
+    case 4:
+      // parameter edit mode 
+      lcd.clear();
+      lcd.setCursor(0,0);
+      // line one should be the selected parameter
+      LCDLineOne = param_name + ":";
+      lcd.print(LCDLineOne);
   }
+
+  
+  lcd.setCursor(0,1);
+  if (btnMode == 0) {
+    // in mode 0 show current device and profile selection
+    // only the middle line really needs to be in the if
+    //lcd.setCursor(0,1);
+    //LCDLineTwo = "Preset: " + String(preset_selected);
+    LCDLineTwo = "Preset: " + preset_name;
+    //lcd.print(LCDLineTwo);
+  }
+  else {
+    // you are showing encoder count but really you want to scroll through NAMES
+    // with no direct access to this info here, this becomes much more complex 
+    // you need to send a message and get back a name with each knob turn 
+    // with direct access, you could just index into the arrays with encoder count
+    // I think this is where things are headed - need a database back end that can be accessed from each device 
+    // unless you are in param edit mode 
+    //lcd.setCursor(0,1);
+    LCDLineTwo = String(encoderCount);
+    //lcd.print(LCDLineTwo);
+  }
+  lcd.print(LCDLineTwo);
 
 
 

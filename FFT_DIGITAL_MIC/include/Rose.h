@@ -16,12 +16,12 @@ class Rose {
             // constructor
         };
 
-        void runPattern(CRGB* leds, int NUM_LEDS, uint8_t max_bright, uint8_t breathe_interval, uint8_t breathe_min_bright);
+        void runPattern(CRGB* leds, int NUM_LEDS, uint8_t breathe_interval, uint8_t max_bright, uint8_t breathe_min_bright);
 
     private:
 };
 
-void Rose::runPattern(CRGB* leds, int NUM_LEDS, uint8_t max_bright, uint8_t breathe_interval, uint8_t breathe_min_bright) {
+void Rose::runPattern(CRGB* leds, int NUM_LEDS, uint8_t breathe_interval, uint8_t max_bright, uint8_t breathe_min_bright) {
 
     fill_palette(leds, NUM_LEDS, 0, 255 / NUM_LEDS, rosy, 255, LINEARBLEND);
     
