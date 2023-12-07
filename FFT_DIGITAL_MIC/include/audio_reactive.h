@@ -26,7 +26,10 @@ const int SAMPLE_RATE = 10240;
 TaskHandle_t FFT_Task;
 
 int squelch = 0;                           // Squelch, cuts out low level sounds
-int gain = 30;                             // Gain, boosts input level*/
+// TODO some function that sets this gain based on a running avg or metric like L90 
+// should the adjustment be frequency dependent?
+// when I have no sound, it still register hi input of high freqs from background noise
+int gain = 5;                             // Gain, boosts input level*/
 uint16_t micData;                               // Analog input for FFT
 uint16_t micDataSm;                             // Smoothed mic data, as it's a bit twitchy
 
@@ -149,7 +152,8 @@ void FFTcode( void * parameter) {
 
     // Manual linear adjustment of gain using gain adjustment for different input types.
     for (int i=0; i < 16; i++) {
-        fftCalc[i] = fftCalc[i] * gain / 40 + fftCalc[i]/16.0;
+        fftCalc[i] = fftCalc[i] * gain + fftCalc[i]/16.0;
+        //fftCalc[i] = fftCalc[i] * gain/40 + fftCalc[i]/16.0;
     }
 
     // Now, let's dump it all into fftResult. Need to do this, otherwise other routines might grab fftResult values prematurely.
@@ -200,6 +204,7 @@ void setupAudio() {
     while (true);
   }
   //Serial.println("I2S driver installed.");
+  // is this delay necessary??
   delay(100);
 
 

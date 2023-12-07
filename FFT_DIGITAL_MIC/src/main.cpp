@@ -8,7 +8,7 @@
  */
 
 #include <Arduino.h>
-#include "audio_reactive.h"
+// #include "audio_reactive.h"
 #include <FastLED.h>
 #include <SPI.h>
 #include <MFRC522.h>
@@ -22,6 +22,7 @@
 #include <Rose.h>
 #include <Ice.h>
 #include <CustomHSV.h>
+#include <React.h>
 //#include <LightEffects.h>
 
 
@@ -49,10 +50,10 @@ boolean send_fdbk = false;
 // what about the name of the preset? should this always occupy the first spot of this array or should it go elsewhere
 const char* roseParams[] = {"Rose", "Rate", "Max", "Min"};
 uint8_t roseDefaults[] = {0, 25, 50, 10};
-const char* iceParams[] = {"Ice", "Rate", "Interval"};
-uint8_t iceDefaults[] = {0, 15, 1};
-const char* reactParams[] = {"React", "Rate", "Max", "Min"};
-uint8_t reactDefaults[] = {0, 0, 0, 0};
+const char* iceParams[] = {"Ice", "Interval", "Rate", "Max", "Min"};
+uint8_t iceDefaults[] = {0, 1, 15, 50, 10};
+const char* reactParams[] = {"React", "Avgs", "Bins"};
+uint8_t reactDefaults[] = {0, 10, 16, 0};
 const char* HSVParams[] = {"HSV", "Hue", "Saturation", "Value"};
 uint8_t HSVDefaults[] = {0, 100, 200, 100};
 const char* lightParams[] = {"Light", "Rate", "Max", "Min"};
@@ -168,12 +169,12 @@ int average = 0;            // the average
 // would also be cool to set num_readings independently for each one sheesh
 // then you could fine tune how different octaves respond to transients etc.
 
-const int num_bins = 16;
-const int fft_num_readings = 10;
-int fft_readings[num_bins][fft_num_readings];  // the readings from the analog input
-int fft_readIndex = 0;          // the index of the current reading
-int fft_total[num_bins] = {0};              // the running total
-int fft_average[num_bins] = {0};            // the average
+// const int num_bins = 16;
+// const int fft_num_readings = 10;
+// int fft_readings[num_bins][fft_num_readings];  // the readings from the analog input
+// int fft_readIndex = 0;          // the index of the current reading
+// int fft_total[num_bins] = {0};              // the running total
+// int fft_average[num_bins] = {0};            // the average
 
 // rfid
 
@@ -384,39 +385,40 @@ void loop()
   // calculate the average:
   average = total / numReadings;
 
-  //// this should go in separate file and be called as function only for reactive presets
+//   //// this should go in separate file and be called as function only for reactive presets
+//   // there is probably a way to achieve this upstream by modifying the fft itself... 
 
-  // use same averaging approach for fft bins 
-  // this probably belongs in a separate file 
-  // also, the FFT is only necessary for reactive patterns - running it for 
-  // non-reactive patterns is inefficient 
+//   // use same averaging approach for fft bins 
+//   // this probably belongs in a separate file 
+//   // also, the FFT is only necessary for reactive patterns - running it for 
+//   // non-reactive patterns is inefficient 
 
-  for (int bin = 0; bin < num_bins; bin++) {
-    // Subtract the oldest value from the running sum
-    fft_total[bin] = fft_total[bin] - fft_readings[bin][fft_readIndex];
+//   for (int bin = 0; bin < num_bins; bin++) {
+//     // Subtract the oldest value from the running sum
+//     fft_total[bin] = fft_total[bin] - fft_readings[bin][fft_readIndex];
 
-    fft_readings[bin][fft_readIndex] = fftResult[bin]; 
+//     fft_readings[bin][fft_readIndex] = fftResult[bin]; 
     
-    // Add the new FFT data value to the running sum
-    fft_total[bin] = fft_total[bin] + fft_readings[bin][fft_readIndex]; // Assuming fftResult contains FFT data for the bin
+//     // Add the new FFT data value to the running sum
+//     fft_total[bin] = fft_total[bin] + fft_readings[bin][fft_readIndex]; // Assuming fftResult contains FFT data for the bin
     
-    // Update the running average for this bin
-   // fft_average[bin] = fft_total[bin] / fft_num_readings; // You can change numReadings if needed
-  }
+//     // Update the running average for this bin
+//    // fft_average[bin] = fft_total[bin] / fft_num_readings; // You can change numReadings if needed
+//   }
 
-// Update the index for the next FFT data point
-fft_readIndex = fft_readIndex + 1;
+// // Update the index for the next FFT data point
+// fft_readIndex = fft_readIndex + 1;
 
-// Wrap around if necessary
-if (fft_readIndex >= fft_num_readings) {
-  fft_readIndex = 0;
-}
+// // Wrap around if necessary
+// if (fft_readIndex >= fft_num_readings) {
+//   fft_readIndex = 0;
+// }
 
-  for (int bin = 0; bin < num_bins; bin++) {
- 
-    // Update the running average for this bin
-    fft_average[bin] = fft_total[bin] / fft_num_readings; // You can change numReadings if needed
-  }
+// for (int bin = 0; bin < num_bins; bin++) {
+
+//   // Update the running average for this bin
+//   fft_average[bin] = fft_total[bin] / fft_num_readings; // You can change numReadings if needed
+// }
 
 
   
@@ -766,7 +768,8 @@ void winter() {
 
 void runIce() {
   Ice ice;
-  ice.runPattern(leds, NUM_LEDS, max_bright);
+  //ice.runPattern(leds, NUM_LEDS, max_bright);
+  ice.runPattern(leds, NUM_LEDS, defaultData[1][1], defaultData[1][2], defaultData[1][3], defaultData[1][4]);
 }
 
 void runRose() {
@@ -780,13 +783,19 @@ void runRose() {
   rose.runPattern(leds, NUM_LEDS, defaultData[0][1], defaultData[0][2], defaultData[0][3]);
 }
 
+void runReact() {
+  React react; 
+  //react.FFTAvg();
+  //react.runPattern(leds, NUM_LEDS, );
+  react.runPattern(leds, NUM_LEDS, defaultData[2][1], defaultData[2][2]);
+}
+
 void runCustomHSV() {
   CustomHSV customHSV;
   //customHSV.runPattern(leds, NUM_LEDS, remoteTransfer);
   customHSV.runPattern(leds, NUM_LEDS, defaultData[3][1], defaultData[3][2], defaultData[3][3]);
   //customHSV.runPattern(leds, NUM_LEDS, 100, 200, 100);
 }
-
 
 
 /*
@@ -800,26 +809,26 @@ void remote() {
 */
 
 
-void react() {
-      int groups = 10;
-    int lights = NUM_LEDS / groups;
+// void react() {
+//     int groups = 10;
+//     int lights = NUM_LEDS / groups;
 
-    //kick flash 
+//     //kick flash 
 
-    if (fftResult[1] > 700) {
+//     if (fftResult[1] > 700) {
 
-      fill_solid(leds, NUM_LEDS, CRGB::White);
+//       fill_solid(leds, NUM_LEDS, CRGB::White);
     
-    }
+//     }
 
-    for (int r = 1; r <= groups; r++) {
-      for (int i = r * lights - lights; i < r * lights; i++) {
-        //leds[i] = CHSV(fftResult[r+3], 150, fftResult[r+3]);
-        leds[i] = CHSV(fft_average[r+3], 150, fft_average[r+3]);
-        //leds[i] = CHSV(90, 150, fftResult[i+3]);
-      } // each LED
-    }
-}
+//     for (int r = 1; r <= groups; r++) {
+//       for (int i = r * lights - lights; i < r * lights; i++) {
+//         //leds[i] = CHSV(fftResult[r+3], 150, fftResult[r+3]);
+//         leds[i] = CHSV(fft_average[r+3], 150, fft_average[r+3]);
+//         //leds[i] = CHSV(90, 150, fftResult[i+3]);
+//       } // each LED
+//     }
+// }
 
 void auto_light() {
       for (int i = 0; i < NUM_LEDS; i++) {
@@ -843,7 +852,7 @@ void runPreset(int preset_id) {
       runIce();
       break;
     case 2:
-      react();
+      runReact();
       break;
     case 3: 
       runCustomHSV();

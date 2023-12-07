@@ -710,6 +710,9 @@ void longPressStart1() {
   Serial.println(btnMode);
 
   // reset encoder count 
+  // what about modes like HSV where the value is updated from a current value?
+  // more robust option is to GET the current value for this parameter 
+  // and set the starting point as this 
   encoderCount = 0;
   encoderGuess = 0;
 
